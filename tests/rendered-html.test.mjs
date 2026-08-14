@@ -13,16 +13,18 @@ async function render() {
   );
 }
 
-test("renders the Keepstorm title experience", async () => {
+test("renders the Musterhold alpha title experience", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Keepstorm — Build the line\. Break the keep\.<\/title>/i);
-  assert.match(html, /KEEPSTORM/);
-  assert.match(html, /Build the line\./);
+  assert.match(html, /<title>Musterhold — Place wisely\. March relentlessly\.<\/title>/i);
+  assert.match(html, /MUSTERHOLD/);
+  assert.match(html, /Place wisely\./);
   assert.match(html, /Begin solo skirmish/);
-  assert.match(html, /keepstorm-social-card\.jpg/);
+  assert.match(html, /PLAYTEST ALPHA/);
+  assert.match(html, /og\.png/);
+  assert.doesNotMatch(html, /KEEPSTORM|Heartkeep|Stormbreak/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview|react-loading-skeleton/);
 });

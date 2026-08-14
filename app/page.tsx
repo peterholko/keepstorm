@@ -1,311 +1,338 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import AtlasSprite from "./atlas-sprite";
+import GameCanvas from "./game-canvas";
 import {
+  BUILDING_CAP,
+  BUILDING_KINDS,
+  BUILDING_SPECS,
   KEEP_MAX_HP,
   MATCH_LIMIT,
-  MAX_WORKS,
-  STORM_READY_AT,
-  UNIT_KINDS,
-  UNIT_SPECS,
-  castStormbreak,
+  REPRIEVE_READY_AT,
+  buildingCount,
+  castReprieve,
   createInitialState,
-  levyFor,
-  purchaseWork,
+  matchReport,
+  placeBuilding,
+  reprieveReady,
   stepGame,
-  stormReady,
-  totalWorks,
+  unitCount,
+  yieldFor,
+  type BuildingKind,
   type GameState,
-  type Team,
-  type UnitKind,
-  type WorkCounts,
-} from "@/lib/game-engine";
+} from "@/lib/musterhold/engine";
 
 type Screen = "title" | "game";
+type Overlay = "rules" | "pause" | "leave" | null;
 
-const COUNTER_COPY: Record<UnitKind, string> = {
-  kilnward: "Crushes Layered",
-  windlass: "Unravels Woven",
-  prism: "Cracks Plated",
+const HOTKEYS: Record<string, BuildingKind> = {
+  "1": "ramworks",
+  "2": "quillnest",
+  "3": "beaconarium",
+  "4": "tallyhouse",
 };
 
-function formatTime(seconds: number): string {
-  const whole = Math.max(0, Math.floor(seconds));
+const BUILD_DETAILS: Record<BuildingKind, { role: string; beats: string }> = {
+  ramworks: { role: "Hammer · Ward", beats: "Breaks Plate" },
+  quillnest: { role: "Arrow · Plate", beats: "Cuts Cloth" },
+  beaconarium: { role: "Arc · Cloth", beats: "Pierces Ward" },
+  tallyhouse: { role: "Economy", beats: "+24 every Yield" },
+};
+
+const FEEDBACK_CHOICES = ["Placement", "Counters", "Economy", "Reprieve", "Unsure"];
+
+function formatClock(seconds: number): string {
+  const whole = Math.max(0, Math.ceil(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-function percent(value: number, maximum: number): number {
-  return Math.max(0, Math.min(100, (value / maximum) * 100));
-}
-
-function Keep({ team, health }: { team: Team; health: number }) {
-  const isPlayer = team === "player";
+function RulesModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className={`heartkeep heartkeep--${team}`}>
-      <span className="heartkeep__banner">{isPlayer ? "YOU" : "RIVAL"}</span>
-      <div className="heartkeep__crown" aria-hidden="true"><i /><i /><i /></div>
-      <span className="heartkeep__core" aria-hidden="true" />
-      <strong>{isPlayer ? "HEARTHKEEP" : "GLOAMKEEP"}</strong>
-      <small>{Math.ceil(health).toLocaleString()}</small>
-      <span className="keep-health" aria-label={`${Math.ceil(health)} keep health`}>
-        <i style={{ width: `${percent(health, KEEP_MAX_HP)}%` }} />
-      </span>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-heading">
+        <button className="modal-close" onClick={onClose} aria-label="Close field guide">×</button>
+        <span className="eyebrow">FIELD GUIDE · TWO-MINUTE READ</span>
+        <h2 id="rules-heading">Win before your rival’s ledger closes.</h2>
+        <p className="rules-lead">Raise Foundries on the left construction yard. Their cohorts march and fight on their own; your placement, production mix, and timing decide the siege.</p>
+
+        <div className="rule-steps">
+          <article><i>01</i><div><b>Place in true 2D</b><span>Choose a Foundry, then click any valid X/Y square. You cannot overlap buildings or seal every route to the gate.</span></div></article>
+          <article><i>02</i><div><b>Read the counter ring</b><span>Hammer breaks Plate. Arrow cuts Cloth. Arc pierces Ward. Nightveil watches your mix and adapts.</span></div></article>
+          <article><i>03</i><div><b>Invest between clashes</b><span>Both sides receive a Yield every seven seconds. Production adds a little income; a Tallyhouse adds a lot but raises no troops.</span></div></article>
+          <article><i>04</i><div><b>Use one Reprieve</b><span>At 0:48, your emergency seal unlocks. It erases invaders on your half and wounds the rest—once per match.</span></div></article>
+        </div>
+
+        <div className="counter-ring" aria-label="Combat counter relationships">
+          <div><AtlasSprite src="/game/icons-atlas.png" index={0} label="Hammer" /><b>HAMMER</b><span>breaks Plate</span></div>
+          <strong>→</strong>
+          <div><AtlasSprite src="/game/icons-atlas.png" index={1} label="Arrow" /><b>ARROW</b><span>cuts Cloth</span></div>
+          <strong>→</strong>
+          <div><AtlasSprite src="/game/icons-atlas.png" index={2} label="Arc" /><b>ARC</b><span>pierces Ward</span></div>
+        </div>
+
+        <button className="primary-button" onClick={onClose}>I understand the ledger <span>→</span></button>
+      </section>
     </div>
   );
 }
 
-function WorkRack({ team, works }: { team: Team; works: WorkCounts }) {
-  const isPlayer = team === "player";
+function TitleScreen({ onPlay, onRules }: { onPlay: () => void; onRules: () => void }) {
   return (
-    <div className={`work-rack work-rack--${team}`} aria-label={`${isPlayer ? "Your" : "Rival"} Musterworks`}>
-      {totalWorks(works) === 0 ? (
-        isPlayer ? <p>Choose a Musterwork below to begin your line.</p> : <p>The rival is choosing a craft.</p>
-      ) : (
-        UNIT_KINDS.flatMap((kind) =>
-          Array.from({ length: works[kind] }, (_, index) => (
-            <span
-              className={`built-work built-work--${kind}`}
-              title={UNIT_SPECS[kind].name}
-              key={`${kind}-${index}`}
-            >
-              <i aria-hidden="true" />
-            </span>
-          )),
-        )
-      )}
-    </div>
+    <main className="title-screen">
+      <div className="title-art" aria-hidden="true" />
+      <div className="title-vignette" aria-hidden="true" />
+      <header className="title-header">
+        <span className="brand-rune">M</span>
+        <strong>MUSTERHOLD</strong>
+        <span className="alpha-label">PLAYTEST ALPHA · 0.1</span>
+      </header>
+
+      <section className="hero-copy">
+        <span className="eyebrow">AN AUTOMATED SIEGE STRATEGY GAME</span>
+        <h1>Place wisely.<br />March relentlessly.</h1>
+        <p>Shape a living construction yard, raise specialized cohorts, and outbuild a rival that learns what you rely on.</p>
+        <div className="hero-actions">
+          <button className="primary-button primary-button--hero" onClick={onPlay}>Begin solo skirmish <span>→</span></button>
+          <button className="text-button" onClick={onRules}>How to play <span>↗</span></button>
+        </div>
+        <div className="hero-facts"><span>One player vs adaptive rival</span><span>Two to five minutes</span><span>No account needed</span></div>
+      </section>
+
+      <aside className="title-dossier">
+        <span className="eyebrow">THE TWIN YARDS</span>
+        <strong>Daybreak Company</strong>
+        <p>Your gold-and-vermilion makers face the Nightveil Syndicate across a divided road.</p>
+        <div><span>VICTORY</span><b>Break the rival Anchorhold</b></div>
+        <div><span>COMMAND</span><b>Build, counter, and time Reprieve</b></div>
+      </aside>
+
+      <footer className="title-footer">ORIGINAL ALPHA ART · KEYBOARD, MOUSE & TOUCH</footer>
+    </main>
   );
 }
 
-function BattleUnit({ unit }: { unit: GameState["units"][number] }) {
-  const laneOffset = ((unit.id * 7) % 4) * 4;
-  const style: CSSProperties = {
-    left: `${unit.x / 10}%`,
-    bottom: `${25 + laneOffset}%`,
-    zIndex: 30 + laneOffset,
-  };
+function FoundryCard({ kind, game, selected, onSelect }: { kind: BuildingKind; game: GameState; selected: boolean; onSelect: () => void }) {
+  const spec = BUILDING_SPECS[kind];
+  const detail = BUILD_DETAILS[kind];
+  const index = BUILDING_KINDS.indexOf(kind) + 1;
+  const unavailable = game.status !== "playing" || game.coins.player < spec.cost || buildingCount(game, "player") >= BUILDING_CAP;
+
   return (
-    <div
-      className={`battle-unit battle-unit--${unit.kind} battle-unit--${unit.team} ${unit.attackFlash > 0 ? "battle-unit--attacking" : ""}`}
-      style={style}
-      title={`${unit.team === "player" ? "Your" : "Rival"} ${UNIT_SPECS[unit.kind].company}`}
+    <button
+      className={`foundry-card${selected ? " is-selected" : ""}`}
+      onClick={onSelect}
+      disabled={unavailable}
+      aria-pressed={selected}
+      aria-label={`${spec.name}, ${spec.cost} Marks. ${spec.description}`}
     >
-      <span className="unit-health" aria-hidden="true"><i style={{ width: `${percent(unit.hp, unit.maxHp)}%` }} /></span>
-      <span className="battle-unit__body" aria-hidden="true">
-        <i className="battle-unit__head" />
-        <i className="battle-unit__tool" />
+      <i className="hotkey">{index}</i>
+      <AtlasSprite src="/game/daybreak-atlas.png" index={spec.atlasIndex} className="foundry-art" />
+      <span className="foundry-copy">
+        <b>{spec.name}</b>
+        <small>{detail.role}</small>
+        <em>{detail.beats}</em>
       </span>
+      <span className="foundry-cost"><i>◆</i>{spec.cost}</span>
+      {selected && <span className="selected-notch">PLACE</span>}
+    </button>
+  );
+}
+
+function GameHeader({ game, onRules, onPause, onLeave }: { game: GameState; onRules: () => void; onPause: () => void; onLeave: () => void }) {
+  const playerRatio = Math.max(0, game.keeps.player / KEEP_MAX_HP);
+  const enemyRatio = Math.max(0, game.keeps.enemy / KEEP_MAX_HP);
+  return (
+    <header className="game-header">
+      <button className="game-brand" onClick={onLeave} aria-label="Return to title screen"><span className="brand-rune">M</span><strong>MUSTERHOLD</strong></button>
+      <div className="keep-score keep-score--player">
+        <div><b>DAYBREAK</b><span>{Math.ceil(game.keeps.player)} / {KEEP_MAX_HP}</span></div>
+        <i><span style={{ width: `${playerRatio * 100}%` }} /></i>
+      </div>
+      <div className="match-clock"><span>THE TWIN YARDS</span><b>{formatClock(MATCH_LIMIT - game.elapsed)}</b><small>{game.started ? "LEDGER CLOSES" : "AWAITING FIRST FOUNDRY"}</small></div>
+      <div className="keep-score keep-score--enemy">
+        <div><b>NIGHTVEIL</b><span>{Math.ceil(game.keeps.enemy)} / {KEEP_MAX_HP}</span></div>
+        <i><span style={{ width: `${enemyRatio * 100}%` }} /></i>
+      </div>
+      <div className="header-actions">
+        <button onClick={onRules} aria-label="Open field guide">?</button>
+        <button onClick={onPause} aria-label="Pause match">Ⅱ</button>
+      </div>
+    </header>
+  );
+}
+
+function TutorialCard({ game, selected, onDismiss }: { game: GameState; selected: BuildingKind | null; onDismiss: () => void }) {
+  const hasBuilding = game.stats.buildingsPlaced.player > 0;
+  return (
+    <aside className="tutorial-card">
+      <span className="tutorial-step">FIRST COMMAND · {hasBuilding ? "03" : selected ? "02" : "01"} / 03</span>
+      <button onClick={onDismiss} aria-label="Dismiss tutorial">×</button>
+      {!hasBuilding && !selected && <><b>Choose what to raise</b><p>Select one of the four cards below. The counter note tells you what its cohort defeats.</p></>}
+      {!hasBuilding && selected && <><b>Choose its X/Y position</b><p>Click a gold square in your yard. The dotted line previews the cohort’s route to the gate.</p></>}
+      {hasBuilding && <><b>The march is automatic</b><p>Your first cohort deploys shortly. Spend each seven-second Yield, watch the rival’s army, and counter it.</p></>}
+    </aside>
+  );
+}
+
+function CommandDeck({ game, selected, onSelect, onReprieve }: {
+  game: GameState;
+  selected: BuildingKind | null;
+  onSelect: (kind: BuildingKind) => void;
+  onReprieve: () => void;
+}) {
+  const remaining = Math.max(0, REPRIEVE_READY_AT - game.elapsed);
+  const ready = reprieveReady(game, "player");
+  return (
+    <section className="command-deck" aria-label="Construction ledger">
+      <div className="ledger-summary">
+        <span className="eyebrow">CONSTRUCTION LEDGER</span>
+        <strong>{selected ? `Placing ${BUILDING_SPECS[selected].name}` : "Choose a Foundry"}</strong>
+        <small>{selected ? `${BUILDING_SPECS[selected].width}×${BUILDING_SPECS[selected].height} cells · Esc cancels` : "Keys 1–4 select · click the left yard to place"}</small>
+      </div>
+      <div className="foundry-list">
+        {BUILDING_KINDS.map((kind) => <FoundryCard key={kind} kind={kind} game={game} selected={selected === kind} onSelect={() => onSelect(kind)} />)}
+      </div>
+      <button className={`reprieve-button${ready ? " is-ready" : ""}`} disabled={!ready} onClick={onReprieve} aria-label={ready ? "Cast Reprieve" : `Reprieve ready in ${formatClock(remaining)}`}>
+        <AtlasSprite src="/game/icons-atlas.png" index={3} className="reprieve-art" />
+        <span><b>REPRIEVE</b><small>{game.reprieveUsed.player ? "SPENT" : ready ? "READY · SPACE" : `CHARGING · ${formatClock(remaining)}`}</small></span>
+      </button>
+    </section>
+  );
+}
+
+function ResultModal({ game, answer, copied, onAnswer, onCopy, onRestart, onTitle }: {
+  game: GameState;
+  answer: string;
+  copied: boolean;
+  onAnswer: (answer: string) => void;
+  onCopy: () => void;
+  onRestart: () => void;
+  onTitle: () => void;
+}) {
+  const won = game.status === "won";
+  return (
+    <div className="modal-backdrop result-backdrop">
+      <section className={`result-modal ${won ? "is-victory" : "is-defeat"}`} role="dialog" aria-modal="true" aria-labelledby="result-heading">
+        <span className="eyebrow">MATCH LEDGER CLOSED</span>
+        <div className="result-seal">{won ? "✦" : "◇"}</div>
+        <h2 id="result-heading">{won ? "Daybreak holds the road." : "Nightveil claims the road."}</h2>
+        <p>{game.event}</p>
+        <div className="result-stats">
+          <div><span>DURATION</span><b>{formatClock(game.elapsed)}</b></div>
+          <div><span>FOUNDRIES</span><b>{game.stats.buildingsPlaced.player}</b></div>
+          <div><span>COHORTS</span><b>{game.stats.unitsSpawned.player}</b></div>
+          <div><span>KEEP LEFT</span><b>{Math.ceil(game.keeps.player)}</b></div>
+        </div>
+        <fieldset className="feedback-field">
+          <legend>What felt most decisive?</legend>
+          <div>{FEEDBACK_CHOICES.map((choice) => <button key={choice} className={answer === choice ? "is-selected" : ""} onClick={() => onAnswer(choice)}>{choice}</button>)}</div>
+        </fieldset>
+        <div className="result-actions">
+          <button className="primary-button" onClick={onRestart}>Play again <span>↻</span></button>
+          <button className="secondary-button" onClick={onCopy}>{copied ? "Report copied ✓" : "Copy playtest report"}</button>
+          <button className="text-button" onClick={onTitle}>Return to title</button>
+        </div>
+      </section>
     </div>
   );
 }
 
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("title");
-  const [game, setGame] = useState<GameState>(createInitialState);
-  const [paused, setPaused] = useState(false);
-
-  const playerUnits = useMemo(() => game.units.filter((unit) => unit.team === "player").length, [game.units]);
-  const enemyUnits = game.units.length - playerUnits;
-  const playerStormReady = stormReady(game, "player");
-  const stormCountdown = Math.max(0, Math.ceil(STORM_READY_AT - game.elapsed));
-  const playerAtCap = totalWorks(game.works.player) >= MAX_WORKS;
+  const [game, setGame] = useState<GameState>(() => createInitialState());
+  const [selected, setSelected] = useState<BuildingKind | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [tutorial, setTutorial] = useState(true);
+  const [hoverMessage, setHoverMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState("");
+  const [copied, setCopied] = useState(false);
+  const lastTick = useRef(0);
+  const paused = overlay !== null || game.status !== "playing";
+  const playerBuildingTotal = buildingCount(game, "player");
 
   useEffect(() => {
-    if (screen !== "game" || paused || game.status !== "playing") return;
-    let previous = performance.now();
-    const timer = window.setInterval(() => {
+    if (screen !== "game" || paused) return;
+    lastTick.current = performance.now();
+    const interval = window.setInterval(() => {
       const now = performance.now();
-      const delta = (now - previous) / 1000;
-      previous = now;
+      const delta = (now - lastTick.current) / 1000;
+      lastTick.current = now;
       setGame((current) => stepGame(current, delta));
-    }, 100);
-    return () => window.clearInterval(timer);
-  }, [screen, paused, game.status]);
+    }, 50);
+    return () => window.clearInterval(interval);
+  }, [paused, screen]);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (screen !== "game") return;
-      const index = Number(event.key) - 1;
-      if (index >= 0 && index < UNIT_KINDS.length) {
-        setGame((current) => purchaseWork(current, "player", UNIT_KINDS[index]));
+    if (screen !== "game") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (overlay === "rules" || overlay === "leave") return;
+      if (event.key.toLowerCase() === "p") { setOverlay((current) => current === "pause" ? null : "pause"); return; }
+      if (event.key === "Escape") {
+        if (overlay === "pause") setOverlay(null);
+        else if (selected) setSelected(null);
+        else setOverlay("pause");
+        return;
       }
+      if (overlay) return;
+      const kind = HOTKEYS[event.key];
+      if (kind && game.coins.player >= BUILDING_SPECS[kind].cost && playerBuildingTotal < BUILDING_CAP) setSelected(kind);
       if (event.code === "Space") {
         event.preventDefault();
-        setGame((current) => castStormbreak(current, "player"));
+        setGame((current) => castReprieve(current, "player"));
       }
-      if (event.key.toLowerCase() === "p" || event.key === "Escape") setPaused((current) => !current);
-    }
+    };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [screen]);
+  }, [game.coins.player, overlay, playerBuildingTotal, screen, selected]);
 
-  function startMatch() {
+  const selectedDescription = useMemo(() => selected ? BUILDING_SPECS[selected].description : null, [selected]);
+
+  const beginMatch = () => {
     setGame(createInitialState());
-    setPaused(false);
+    setSelected(null);
+    setTutorial(true);
+    setFeedback("");
+    setCopied(false);
+    setOverlay(null);
     setScreen("game");
-  }
+  };
 
-  function build(kind: UnitKind) {
-    setGame((current) => purchaseWork(current, "player", kind));
-  }
+  const goToTitle = () => {
+    setOverlay(null);
+    setScreen("title");
+  };
 
   if (screen === "title") {
-    return (
-      <main className="title-screen">
-        <div className="title-screen__art" aria-hidden="true" />
-        <div className="title-screen__veil" />
-        <nav className="masthead" aria-label="Primary navigation">
-          <a className="wordmark" href="#top" aria-label="Keepstorm home">
-            <span className="wordmark__crest">K</span>
-            <span>KEEPSTORM</span>
-          </a>
-          <span className="edition-pill">PLAYABLE FIRST MUSTER</span>
-        </nav>
-
-        <section className="hero-copy" id="top">
-          <p className="eyebrow">A LIVING BATTLEFIELD OF BRASS, CLOTH &amp; STORMGLASS</p>
-          <h1>Build the line.<br />Break the keep.</h1>
-          <p className="hero-copy__body">
-            Raise enchanted workshops. Muster their creations automatically.
-            Read the rival line and turn one glorious counter into a crushing march.
-          </p>
-          <button className="primary-action" onClick={startMatch}>
-            <span>Begin solo skirmish</span>
-            <span aria-hidden="true">→</span>
-          </button>
-          <div className="feature-row" aria-label="Game features">
-            <span>1 winding lane</span>
-            <span>3 rival materials</span>
-            <span>1 decisive Stormbreak</span>
-          </div>
-        </section>
-      </main>
-    );
+    return <><TitleScreen onPlay={beginMatch} onRules={() => setOverlay("rules")} />{overlay === "rules" && <RulesModal onClose={() => setOverlay(null)} />}</>;
   }
 
   return (
     <main className="game-shell">
-      <header className="game-topbar">
-        <button className="wordmark wordmark--button" onClick={() => setScreen("title")} aria-label="Return to title">
-          <span className="wordmark__crest">K</span>
-          <span>KEEPSTORM</span>
-        </button>
-        <div className="round-label">
-          <span>SOLO SKIRMISH · {formatTime(MATCH_LIMIT - game.elapsed)}</span>
-          <strong>THE FIRST MUSTER</strong>
-        </div>
-        <div className="topbar-actions">
-          <div className="resource-bar" aria-label={`${Math.floor(game.playerCoin)} coin, ${levyFor(game.works.player)} levy`}>
-            <span className="resource-bar__mark" aria-hidden="true">◆</span>
-            <span><strong>{Math.floor(game.playerCoin)}</strong> COIN</span>
-            <span className="resource-bar__levy">+{levyFor(game.works.player)} LEVY</span>
-          </div>
-          <button className="pause-button" onClick={() => setPaused((current) => !current)}>
-            {paused ? "RESUME" : "PAUSE"}
-          </button>
-        </div>
-      </header>
-
-      <section className="battlefield" aria-label="Keepstorm battlefield">
-        <div className="storm-sky" aria-hidden="true" />
-        <div className="far-ridge" aria-hidden="true" />
-        <div className="lane" aria-hidden="true" />
-        <div className="counter-ribbon" aria-label="Counter guide">
-          <span><b>IMPACT</b> breaks Layered</span>
-          <i>◆</i>
-          <span><b>VOLLEY</b> unravels Woven</span>
-          <i>◆</i>
-          <span><b>SURGE</b> cracks Plated</span>
-        </div>
-        <div className="battle-event" key={game.eventSerial} role="status" aria-live="polite">
-          {game.event}
-        </div>
-
-        <Keep team="player" health={game.playerKeep} />
-        <Keep team="enemy" health={game.enemyKeep} />
-
-        <div className="rally-mark" aria-hidden="true">
-          <span />
-          <small>RALLY MARK</small>
-        </div>
-
-        {game.units.map((unit) => <BattleUnit unit={unit} key={unit.id} />)}
-
-        <div className="battle-count battle-count--player"><b>{playerUnits}</b><span>YOUR LINE</span></div>
-        <div className="battle-count battle-count--enemy"><b>{enemyUnits}</b><span>RIVAL LINE</span></div>
-        <WorkRack team="player" works={game.works.player} />
-        <WorkRack team="enemy" works={game.works.enemy} />
-
-        {paused && game.status === "playing" && (
-          <div className="pause-veil">
-            <span className="eyebrow">THE STORM HOLDS</span>
-            <strong>Skirmish paused</strong>
-            <button onClick={() => setPaused(false)}>Resume the march</button>
-          </div>
-        )}
-
-        {game.status !== "playing" && (
-          <div className={`result-panel result-panel--${game.status}`} role="dialog" aria-modal="true" aria-label="Match result">
-            <span className="eyebrow">{game.status === "won" ? "THE LINE HOLDS" : "THE KEEP IS QUIET"}</span>
-            <h2>{game.status === "won" ? "Victory" : "Defeat"}</h2>
-            <p>{game.event}</p>
-            <div className="result-stats">
-              <span><b>{formatTime(game.elapsed)}</b> duration</span>
-              <span><b>{totalWorks(game.works.player)}</b> works raised</span>
-              <span><b>{playerUnits}</b> company standing</span>
-            </div>
-            <div className="result-actions">
-              <button className="primary-action" onClick={startMatch}>Muster again <span>→</span></button>
-              <button className="quiet-action" onClick={() => setScreen("title")}>Return to title</button>
-            </div>
-          </div>
-        )}
+      <GameHeader game={game} onRules={() => setOverlay("rules")} onPause={() => setOverlay("pause")} onLeave={() => setOverlay("leave")} />
+      <section className="battlefield-stage">
+        <GameCanvas
+          state={game}
+          selected={selected}
+          onPlace={(kind, gridX, gridY) => setGame((current) => placeBuilding(current, "player", kind, gridX, gridY))}
+          onCancelSelection={() => setSelected(null)}
+          onHoverMessage={setHoverMessage}
+        />
+        <div className="resource-panel resource-panel--player"><span>YOUR RESERVES</span><b>◆ {Math.floor(game.coins.player)} MARKS</b><small>+{yieldFor(game, "player")} in {Math.max(1, Math.ceil(game.incomeClock))}s</small></div>
+        <div className="resource-panel resource-panel--enemy"><span>RIVAL FORCE</span><b>{buildingCount(game, "enemy")} FOUNDRIES</b><small>{unitCount(game, "enemy")} cohorts afield</small></div>
+        <div className={`event-ribbon${hoverMessage && selected ? " is-placement" : ""}`} role="status" aria-live="polite"><i /><span>{hoverMessage && selected ? hoverMessage : game.event}</span>{selectedDescription && <small>{selectedDescription}</small>}</div>
+        {tutorial && game.status === "playing" && <TutorialCard game={game} selected={selected} onDismiss={() => setTutorial(false)} />}
       </section>
+      <CommandDeck game={game} selected={selected} onSelect={(kind) => setSelected((current) => current === kind ? null : kind)} onReprieve={() => setGame((current) => castReprieve(current, "player"))} />
 
-      <section className="command-deck" aria-label="Build controls">
-        <div className="command-intro">
-          <span className="eyebrow">YOUR MUSTERWORKS · {totalWorks(game.works.player)}/{MAX_WORKS}</span>
-          <strong>Every workshop raises its own company.</strong>
-          <small>Next Levy in {Math.max(1, Math.ceil(game.economyClock))}s</small>
-        </div>
-        <div className="build-cards">
-          {UNIT_KINDS.map((kind, index) => {
-            const work = UNIT_SPECS[kind];
-            const disabled = game.status !== "playing" || playerAtCap || game.playerCoin < work.cost;
-            return (
-              <button
-                className={`build-card build-card--${kind}`}
-                disabled={disabled}
-                key={kind}
-                onClick={() => build(kind)}
-                aria-label={`Build ${work.name} for ${work.cost} coin. ${work.description}`}
-              >
-                <span className="build-card__index">{index + 1}</span>
-                <span className="build-card__icon" aria-hidden="true"><i /></span>
-                <span className="build-card__copy">
-                  <strong>{work.name}</strong>
-                  <small>{work.damageType} · {work.armorType}</small>
-                  <em>{COUNTER_COPY[kind]}</em>
-                </span>
-                <span className="build-card__count">×{game.works.player[kind]}</span>
-                <span className="build-card__cost">◆ {work.cost}</span>
-              </button>
-            );
-          })}
-        </div>
-        <button
-          className={`stormbreak-button ${playerStormReady ? "stormbreak-button--ready" : ""}`}
-          disabled={!playerStormReady}
-          onClick={() => setGame((current) => castStormbreak(current, "player"))}
-          aria-label={playerStormReady ? "Cast Stormbreak" : game.stormUsed.player ? "Stormbreak spent" : `Stormbreak ready in ${stormCountdown} seconds`}
-        >
-          <span className="stormbreak-button__icon" aria-hidden="true">✦</span>
-          <span>
-            <strong>STORMBREAK</strong>
-            <small>{game.stormUsed.player ? "SPENT" : playerStormReady ? "PRESS SPACE" : `CHARGING · ${stormCountdown}s`}</small>
-          </span>
-        </button>
-      </section>
+      {overlay === "rules" && <RulesModal onClose={() => setOverlay(null)} />}
+      {overlay === "pause" && (
+        <div className="modal-backdrop"><section className="pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-heading"><span className="eyebrow">LEDGER PAUSED</span><h2 id="pause-heading">The march is holding.</h2><p>No cohorts move and no Yield ticks while this panel is open.</p><button className="primary-button" onClick={() => setOverlay(null)}>Resume match <span>→</span></button><button className="secondary-button" onClick={() => setOverlay("rules")}>Open field guide</button><button className="text-button" onClick={() => setOverlay("leave")}>Leave this match</button></section></div>
+      )}
+      {overlay === "leave" && (
+        <div className="modal-backdrop"><section className="pause-modal" role="dialog" aria-modal="true" aria-labelledby="leave-heading"><span className="eyebrow">ABANDON MATCH?</span><h2 id="leave-heading">This ledger cannot be recovered.</h2><div className="confirm-actions"><button className="primary-button" onClick={goToTitle}>Return to title</button><button className="secondary-button" onClick={() => setOverlay(null)}>Keep playing</button></div></section></div>
+      )}
+      {game.status !== "playing" && <ResultModal game={game} answer={feedback} copied={copied} onAnswer={setFeedback} onCopy={async () => { try { await navigator.clipboard.writeText(matchReport(game, feedback)); setCopied(true); } catch { setCopied(false); } }} onRestart={beginMatch} onTitle={goToTitle} />}
     </main>
   );
 }

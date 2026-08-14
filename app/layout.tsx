@@ -2,25 +2,22 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Keepstorm — Build the line. Break the keep.",
+  title: "Musterhold — Place wisely. March relentlessly.",
   description:
-    "Raise enchanted Musterworks, counter the rival line, and break the opposing Heartkeep in this original lane strategy prototype.",
-  keywords: ["strategy game", "browser game", "auto battler", "Keepstorm"],
-  icons: {
-    icon: "/keepstorm-social-card.jpg",
-    shortcut: "/keepstorm-social-card.jpg",
-  },
+    "Place foundries on a true 2D battlefield, route automatic cohorts, and outbuild an adaptive rival in Musterhold.",
+  keywords: ["strategy game", "browser game", "base building", "Musterhold"],
   openGraph: {
-    title: "Keepstorm",
-    description: "Build the line. Break the keep.",
+    title: "Musterhold — Place wisely. March relentlessly.",
+    description: "Build a true 2D construction yard and outmatch an adaptive rival in this original automated siege strategy Alpha.",
     type: "website",
-    images: [{ url: "/keepstorm-social-card.jpg", width: 1731, height: 909, alt: "Two living enchanted keeps facing across a storm-lit battlefield" }],
+    siteName: "Musterhold",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Daybreak and Nightveil forces clash in Musterhold" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Keepstorm",
-    description: "Build the line. Break the keep.",
-    images: ["/keepstorm-social-card.jpg"],
+    title: "Musterhold — Place wisely. March relentlessly.",
+    description: "Build a true 2D construction yard and outmatch an adaptive rival.",
+    images: ["/og.png"],
   },
 };
 

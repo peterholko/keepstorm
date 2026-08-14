@@ -1,143 +1,59 @@
-# Keepstorm — Creative Direction
+# Musterhold creative direction
 
-Status: working identity; final trademark and storefront clearance still required.
+Status: original closed-Alpha identity; trademark and storefront clearance are still required before commercial release.
 
-## Brand foundation
+## Brand
 
-- **Working title:** Keepstorm
-- **Tagline:** Build the line. Break the keep.
-- **Genre description:** 3v3 automated-army strategy
-- **Short pitch:** Build living workshops, muster constructed companies, counter the opposing line, and save one final Stormbreak for the moment your Heartkeep is about to fall.
+- **Title:** Musterhold
+- **Tagline:** Place wisely. March relentlessly.
+- **Genre line:** Automated siege strategy
+- **Short pitch:** Shape a construction yard, raise specialized mechanical cohorts, counter an adaptive rival, and break its Anchorhold before the ledger closes.
 
-The title refers to the mass of companies, spells, and siege works that gathers between two keeps during a match. It is short, pronounceable, and does not rely on Warcraft terminology.
+## World
 
-## World premise
+Musterhold is set in a bright, handcrafted frontier where rival charter companies settle disputes by building temporary army foundries. Every structure is part workshop, part civic monument. Armies are constructed machines and animated tools rather than familiar fantasy species.
 
-Keepstorm takes place in a windswept world where strongholds are living workshops. Each Heartkeep assembles temporary armies called **musterborn** from crafted materials: glazed ceramic, banner-cloth, carved stone, hammered brass, wicker, ink, and luminous stormglass.
+The Alpha match is **The Twin Yards**:
 
-The combatants are constructed heraldic effigies rather than biological fantasy races. This gives the game a coherent original identity and lets every faction be recognized by material, silhouette, movement, and sound.
+- **Daybreak Company** uses ivory stone, warm timber, sun-yellow glass, red canvas, feather vanes, and circular sun marks.
+- **Nightveil Syndicate** uses charcoal stone, dark timber, indigo canvas, mint energy, crescent metalwork, and angular crystal fins.
+- Both factions share silhouette roles so combat remains readable, while palette, banners, light color, and architectural motifs make ownership unmistakable.
 
-## Core terminology
+## Alpha roster
 
-| System concept | Keepstorm term | Notes |
-|---|---|---|
-| Castle | Heartkeep | Shared team objective and shop |
-| Builder | Steward | Player-controlled construction character |
-| Race/faction | Bannerhouse | A complete build roster and play style |
-| Spawned unit | Musterborn | Individual constructed fighter |
-| Army/wave | Company | A group moving together |
-| Unit building | Musterwork | Periodically assembles musterborn |
-| Special building | Wonderwork | Casts active or passive effects |
-| Tower | Wardpost | Stationary defensive work |
-| Artillery | Farwork | Attacks distant enemy structures |
-| Gold | Coin | Primary construction and item resource |
-| Lumber | Craft | Secondary resource produced by musterworks |
-| Legendary capacity | Renown | Limits apex units and wonders |
-| Income | Levy | Periodic Coin payment |
-| Kill bounty | Spoils | Coin awarded for defeating enemies |
-| Legendary | Mythic | Apex unit, upgrade, or wonder |
-| Rescue Strike | Stormbreak | One-use defensive battlefield clear |
-| Synchronization | Musterlink | Connects production schedules |
-| Spawn flag | Rally Mark | Sets a musterwork's release direction |
-| Caging | Garrisoning | Holds companies inside the friendly base |
-| Item | Relic | Purchased tactical or permanent effect |
-| Perk | Oath | A benefit paired with a drawback |
-| Fog of war | Stormveil | Server-enforced hidden information |
+| Foundry | Cohort | Combat identity | Visual identity |
+|---|---|---|---|
+| Anchorhold | Objective | Defends itself and determines victory | Tall charter hall with a celestial crest |
+| Ramworks | Ramguard | Hammer damage, Ward armor | Timber hammer mill and broad two-handed construct |
+| Quillnest | Quillrunner | Arrow damage, Plate armor | Feathered bolt workshop and fast mechanical ranger |
+| Beaconarium | Wispwright | Arc damage, Cloth armor | Orb observatory and floating energy artisan |
+| Tallyhouse | None | Large recurring Yield bonus | Market-ledger stall with scales, inks, and seals |
 
-Common generic terms such as health, armor, damage, range, cooldown, round, and match remain unchanged for immediate readability.
+## Visual grammar
 
-## Combat terminology
+- Elevated painterly building and unit sprites over a straight-overhead tactical board.
+- Chunky silhouettes and exaggerated working parts remain legible at small sizes.
+- Warm Daybreak and cool Nightveil light are always paired with different shapes and banners, not used as the only ownership cue.
+- Interface panels resemble a dark field ledger edged with restrained brass; parchment cream is reserved for text and instruction.
+- Gold indicates player construction and valid commands. Mint indicates the rival and Reprieve energy. Vermilion indicates danger and damage.
+- The battlefield is a symmetric pair of earthen construction yards divided by water and a winding pale-stone road.
 
-The original counter matrix can be retained while presenting an original vocabulary:
+## Produced Alpha art
 
-| Mechanical role | Attack term | Countered armor term |
-|---|---|---|
-| Normal | Impact | Layered |
-| Pierce | Volley | Woven |
-| Magic | Surge | Plated |
-| Siege | Breach | Masonry |
-| Chaos | Pure | All armor consistently |
-| Hero | Exalted | Broad generalist damage |
-| Spell | Wonder | Modified by warding |
+The committed Alpha art is original and was generated specifically for this project:
 
-Other armor categories:
+- `public/game/title-art.jpg` — title-screen battle illustration
+- `public/game/battlefield.jpg` — straight-overhead Twin Yards board
+- `public/game/daybreak-atlas.png` — Anchorhold, four Foundries, and three cohorts
+- `public/game/nightveil-atlas.png` — opposing equivalents with independent faction treatment
+- `public/game/icons-atlas.png` — counter, Reprieve, armor, and currency emblems
+- `public/og.png` — finished 1200 × 630 social share card
 
-- **Bare:** little type specialization
-- **Mythic:** strongly resistant except to Pure damage
-- **Exalted:** broadly resistant apex armor
-- **Warding:** separate resistance to Wonder damage
+The generated originals remain in the project’s art-generation archive; deployment-ready derivatives live in `public/game`. Atlas backdrops are removed into alpha at runtime with a connected-edge key so the same illustrations sit cleanly over both the battlefield and the interface.
 
-These names are provisional. The UI should always show the counter relationship in tooltips instead of requiring players to memorize terminology.
+## Originality guardrails
 
-## Initial Bannerhouses
-
-The first release should use six deeply developed Bannerhouses rather than reproducing the original map's entire faction count.
-
-### Hearthkiln Union
-
-- Materials: crackled ceramic, brick, copper wire, emberglass
-- Identity: durable front line, repair, heat buildup, shattering retaliation
-- Sample names: Potguard, Glazewarden, Kiln Ram, Cinder Colossus
-
-### Galeweave Caravan
-
-- Materials: folded cloth, kites, rope, wooden spars, lantern flame
-- Identity: speed, flying companies, displacement, formation support
-- Sample names: Windfold, Kitekeeper, Tetherwing, Tempest Standard
-
-### Tidelens Accord
-
-- Materials: stormglass, polished stone, flowing water, silver frames
-- Identity: long-range fire, refraction, mana control, chaining attacks
-- Sample names: Prism Slinger, Lensbearer, Rillwalker, Many-Faceted Eye
-
-### Bellfoundry League
-
-- Materials: hammered brass, dark iron, bells, springs, wheeled frames
-- Identity: siege, stuns, timed pulses, heavily armored machines
-- Sample names: Knocker, Chimewalker, Toll Ram, Grand Carillon
-
-### Briar Loom
-
-- Materials: wicker, roots, woven reeds, seedpods, sap
-- Identity: swarms, regeneration, entanglement, garrison synergy
-- Sample names: Wickerling, Thornback, Reedstalker, Old Loomheart
-
-### Gloam Press
-
-- Materials: black ink, layered paper, carved masks, wax seals
-- Identity: debuffs, decoys, assassins, copying and erasing effects
-- Sample names: Blotmask, Pageknife, False Standard, Midnight Folio
-
-## Visual language
-
-- Handcrafted graphic storybook aesthetic: gouache surfaces, woodcut contours, visible cloth weave, crackled glaze, carved facets, and aged metal.
-- Elevated three-quarter battlefield view with strong silhouettes at small sizes.
-- No biological fantasy races as the default army language.
-- Team identity is shown through coral-amber versus turquoise-indigo trim, banner shape, and outline—not color alone.
-- Bannerhouse identity comes from materials and silhouettes, remaining visible regardless of team.
-- Keeps are asymmetrical fortress-workshops with wind vanes, open foundries, cloth canopies, and weather cores.
-- UI uses parchment, stormglass, inked borders, and restrained metallic fittings.
-- Final logo should be a clean SVG/code-native wordmark; generated bitmap lettering is concept-only.
-
-## Art-production rules
-
-1. Create a single approved anchor sheet for every Bannerhouse before generating individual units.
-2. Preserve silhouette, material palette, emblem grammar, and scale across every asset.
-3. Generate concepts first; produce final gameplay sprites from locked references.
-4. Use fixed camera, lighting, padding, and directional rules for sprite consistency.
-5. Keep gameplay silhouettes readable at target resolution before adding texture.
-6. Store source prompts and content IDs beside each approved asset.
-7. Avoid references to named games, artists, or existing franchise styles in production prompts.
-
-## First key-art prompt
-
-Use case: stylized-concept
-
-Asset type: original web strategy game title-screen background and definitive visual-direction anchor
-
-Primary request: Create entirely original key art for Keepstorm, a 3v3 tug-of-war strategy game. The armies are not humans, dwarves, elves, or recognizable fantasy races: they are animated heraldic effigies assembled by living keeps from glazed ceramic armor, folded banner-cloth, carved stone, hammered brass, and luminous stormglass. Do not render the title or any text.
-
-Scene: Two unusual living keeps face each other across a windswept highland lane during an approaching magical storm. Readable companies of banner-bodied shield effigies, tripod stormglass slingers, rolling ceramic ram-creatures, and folded-cloth lantern scouts converge into a central battlefront.
-
-Style: Graphic storybook game art combining gouache painting, subtle woodcut contours, tactile paper-and-ceramic textures, and simplified 2.5D forms. No text, logos, watermark, recognizable franchise silhouettes, or glossy mobile-game rendering.
+- Do not use names, characters, UI layouts, audio, artwork, maps, or lore from an existing game or mod.
+- Keep the premise centered on charter companies, constructed cohorts, route-aware yards, and ledgers.
+- Add mechanics because they strengthen Musterhold’s placement and counterplay, not to reproduce another title’s content catalogue.
+- Maintain prompt records and source masters for every approved generated asset.

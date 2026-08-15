@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
-      "pattern": "keepstorm.peterholko.com",
+      "pattern": "keepstorm.com",
       "custom_domain": true
     }
   ],

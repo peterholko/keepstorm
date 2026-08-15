@@ -54,7 +54,7 @@ npm run build
 
 ## Cloudflare deployment
 
-The full game, static assets, API, WebSockets, and per-room Durable Objects deploy together to `keepstorm.peterholko.com`:
+The full game, static assets, API, WebSockets, and per-room Durable Objects deploy together to `keepstorm.com`:
 
 ```bash
 npm run deploy:cloudflare

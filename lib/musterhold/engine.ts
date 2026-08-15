@@ -17,6 +17,7 @@ export type ArmorType = "Plate" | "Cloth" | "Ward";
 
 export interface Point { x: number; y: number }
 export interface GridPoint { x: number; y: number }
+export interface GridRect { minX: number; maxX: number; minY: number; maxY: number }
 
 export interface BuildingSpec {
   name: string;
@@ -212,40 +213,49 @@ export interface PlacementValidation {
   path?: GridPoint[];
 }
 
-export const BUILD_ZONES: Record<Team, { minX: number; maxX: number; minY: number; maxY: number }> = {
-  player: { minX: 5, maxX: 16, minY: 3, maxY: 24 },
-  enemy: { minX: 83, maxX: 94, minY: 3, maxY: 24 },
+export const BUILD_AREAS: Record<Team, readonly GridRect[]> = {
+  player: [
+    { minX: 9, maxX: 19, minY: 4, maxY: 11 },
+    { minX: 9, maxX: 19, minY: 16, maxY: 23 },
+  ],
+  enemy: [
+    { minX: 80, maxX: 90, minY: 4, maxY: 11 },
+    { minX: 80, maxX: 90, minY: 16, maxY: 23 },
+  ],
 };
 
-const NAV_ZONES: Record<Team, { minX: number; maxX: number; minY: number; maxY: number }> = {
-  player: { minX: 3, maxX: 18, minY: 2, maxY: 25 },
-  enemy: { minX: 81, maxX: 96, minY: 2, maxY: 25 },
+export const BUILD_ZONES: Record<Team, GridRect> = {
+  player: { minX: 9, maxX: 19, minY: 4, maxY: 23 },
+  enemy: { minX: 80, maxX: 90, minY: 4, maxY: 23 },
+};
+
+const NAV_ZONES: Record<Team, GridRect> = {
+  player: { minX: 3, maxX: 23, minY: 2, maxY: 25 },
+  enemy: { minX: 76, maxX: 96, minY: 2, maxY: 25 },
 };
 
 export const GATE_CELLS: Record<Team, GridPoint> = {
-  player: { x: 18, y: 14 },
-  enemy: { x: 81, y: 14 },
+  player: { x: 23, y: 13 },
+  enemy: { x: 76, y: 13 },
 };
 
 export const KEEP_POSITIONS: Record<Team, Point> = {
-  player: { x: 120, y: 448 },
-  enemy: { x: 3080, y: 448 },
+  player: { x: 128, y: 448 },
+  enemy: { x: 3072, y: 448 },
 };
 
 const LANE_PATH: Point[] = [
-  { x: 592, y: 464 },
-  { x: 720, y: 486 },
-  { x: 900, y: 438 },
-  { x: 1080, y: 408 },
-  { x: 1260, y: 452 },
-  { x: 1430, y: 482 },
+  { x: 752, y: 448 },
+  { x: 900, y: 463 },
+  { x: 1080, y: 400 },
+  { x: 1260, y: 439 },
+  { x: 1430, y: 463 },
   { x: 1600, y: 448 },
-  { x: 1770, y: 478 },
-  { x: 1940, y: 440 },
-  { x: 2120, y: 402 },
-  { x: 2300, y: 438 },
-  { x: 2480, y: 486 },
-  { x: 2608, y: 464 },
+  { x: 1770, y: 463 },
+  { x: 1940, y: 439 },
+  { x: 2120, y: 400 },
+  { x: 2300, y: 463 },
+  { x: 2448, y: 448 },
 ];
 
 const ARMOR_COUNTER: Record<DamageType, ArmorType> = {
@@ -385,8 +395,13 @@ export function validatePlacement(state: GameState, team: Team, kind: BuildingKi
   if (buildingCount(state, team) >= BUILDING_CAP) return { valid: false, reason: "Your construction yard is full." };
 
   const spec = BUILDING_SPECS[kind];
-  const zone = BUILD_ZONES[team];
-  if (gridX < zone.minX || gridY < zone.minY || gridX + spec.width - 1 > zone.maxX || gridY + spec.height - 1 > zone.maxY) {
+  const insideBuildArea = BUILD_AREAS[team].some((area) => (
+    gridX >= area.minX
+    && gridY >= area.minY
+    && gridX + spec.width - 1 <= area.maxX
+    && gridY + spec.height - 1 <= area.maxY
+  ));
+  if (!insideBuildArea) {
     return { valid: false, reason: "That footprint leaves your construction yard." };
   }
 
@@ -517,8 +532,8 @@ function aiDesiredBuilding(state: GameState): BuildingKind {
   return playerFocus ? COUNTER_BUILDING[playerFocus] : PRODUCTION_KINDS[production % PRODUCTION_KINDS.length];
 }
 
-const AI_Y = [4, 9, 15, 20, 3, 12, 18, 7, 22];
-const AI_X = [91, 87, 83, 92, 88, 84, 90, 86, 83];
+const AI_Y = [4, 8, 16, 20, 5, 17, 9, 21];
+const AI_X = [88, 84, 81, 87, 83, 80, 86, 82, 88];
 
 function runAi(state: GameState): GameState {
   if (!state.started || buildingCount(state, "enemy") >= BUILDING_CAP) return state;

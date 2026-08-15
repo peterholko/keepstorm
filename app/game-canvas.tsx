@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILDING_SPECS,
-  BUILD_ZONES,
+  BUILD_AREAS,
   CELL_SIZE,
   GRID_COLUMNS,
   GRID_ROWS,
@@ -20,10 +20,9 @@ import {
   type Team,
   type Unit,
 } from "@/lib/musterhold/engine";
-import { drawAtlasCell, loadImage, loadProcessedAtlas } from "./atlas-assets";
+import { drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
 
 interface LoadedArt {
-  map: HTMLImageElement;
   player: HTMLCanvasElement;
   enemy: HTMLCanvasElement;
 }
@@ -205,32 +204,33 @@ function drawEffects(context: CanvasRenderingContext2D, state: GameState): void 
 }
 
 function drawGrid(context: CanvasRenderingContext2D, team: Team, bright: boolean): void {
-  const zone = BUILD_ZONES[team];
-  const x = zone.minX * CELL_SIZE;
-  const y = zone.minY * CELL_SIZE;
-  const width = (zone.maxX - zone.minX + 1) * CELL_SIZE;
-  const height = (zone.maxY - zone.minY + 1) * CELL_SIZE;
   const color = TEAM_COLORS[team];
   context.save();
-  context.fillStyle = bright ? `${color}18` : `${color}0b`;
-  context.fillRect(x, y, width, height);
-  context.strokeStyle = bright ? `${color}70` : `${color}30`;
-  context.lineWidth = bright ? 2 : 1;
-  for (let column = zone.minX; column <= zone.maxX + 1; column += 1) {
-    context.beginPath();
-    context.moveTo(column * CELL_SIZE, y);
-    context.lineTo(column * CELL_SIZE, y + height);
-    context.stroke();
+  for (const zone of BUILD_AREAS[team]) {
+    const x = zone.minX * CELL_SIZE;
+    const y = zone.minY * CELL_SIZE;
+    const width = (zone.maxX - zone.minX + 1) * CELL_SIZE;
+    const height = (zone.maxY - zone.minY + 1) * CELL_SIZE;
+    context.fillStyle = bright ? `${color}18` : `${color}0b`;
+    context.fillRect(x, y, width, height);
+    context.strokeStyle = bright ? `${color}70` : `${color}30`;
+    context.lineWidth = bright ? 2 : 1;
+    for (let column = zone.minX; column <= zone.maxX + 1; column += 1) {
+      context.beginPath();
+      context.moveTo(column * CELL_SIZE, y);
+      context.lineTo(column * CELL_SIZE, y + height);
+      context.stroke();
+    }
+    for (let row = zone.minY; row <= zone.maxY + 1; row += 1) {
+      context.beginPath();
+      context.moveTo(x, row * CELL_SIZE);
+      context.lineTo(x + width, row * CELL_SIZE);
+      context.stroke();
+    }
+    context.strokeStyle = bright ? color : `${color}80`;
+    context.lineWidth = bright ? 4 : 2;
+    context.strokeRect(x, y, width, height);
   }
-  for (let row = zone.minY; row <= zone.maxY + 1; row += 1) {
-    context.beginPath();
-    context.moveTo(x, row * CELL_SIZE);
-    context.lineTo(x + width, row * CELL_SIZE);
-    context.stroke();
-  }
-  context.strokeStyle = bright ? color : `${color}80`;
-  context.lineWidth = bright ? 4 : 2;
-  context.strokeRect(x, y, width, height);
   context.restore();
 }
 
@@ -255,19 +255,35 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [art, setArt] = useState<LoadedArt | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const [hover, setHover] = useState<HoverCell | null>(null);
   const [scrollRatio, setScrollRatio] = useState(0);
+  const [renderScale, setRenderScale] = useState(1);
 
   useEffect(() => {
     let active = true;
     Promise.all([
-      loadImage("/game/battlefield-panorama.jpg"),
       loadProcessedAtlas("/game/daybreak-atlas.png"),
       loadProcessedAtlas("/game/nightveil-atlas.png"),
-    ]).then(([map, player, enemy]) => {
-      if (active) setArt({ map, player, enemy });
+    ]).then(([player, enemy]) => {
+      if (active) setArt({ player, enemy });
     }).catch(() => undefined);
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const updateRenderScale = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const cssScale = Math.max(bounds.width / WORLD_WIDTH, bounds.height / WORLD_HEIGHT);
+      const next = Math.max(1, Math.min(2, cssScale * Math.min(window.devicePixelRatio || 1, 2)));
+      setRenderScale((current) => Math.abs(current - next) > 0.05 ? next : current);
+    };
+    updateRenderScale();
+    const observer = new ResizeObserver(updateRenderScale);
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -296,10 +312,11 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     if (!canvas || !art) return;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(renderScale, 0, 0, renderScale, 0, 0);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(art.map, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     context.fillStyle = "rgba(10, 16, 9, .055)";
     context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
@@ -348,7 +365,7 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     }
     fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
     drawEffects(context, state);
-  }, [art, hover, hoverValidation, selected, state]);
+  }, [art, hover, hoverValidation, renderScale, selected, state]);
 
   const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -395,60 +412,71 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
 
   return (
     <div className="battlefield-frame">
-      {!art && <div className="battlefield-loading"><span />Preparing the Twin Yards…</div>}
+      {(!art || !mapReady) && <div className="battlefield-loading"><span />Preparing the Twin Yards…</div>}
       <div
         ref={scrollRef}
         className="battlefield-scroll"
         onScroll={updateScrollRatio}
       >
-        <canvas
-          ref={canvasRef}
-          width={WORLD_WIDTH}
-          height={WORLD_HEIGHT}
-          className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
-          aria-label="The double-width Twin Yards battlefield. Scroll horizontally with the camera controls, mouse wheel, trackpad, touch, or A and D keys. Choose a Foundry below, then place it in the illuminated Daybreak yard at the far left."
-          tabIndex={0}
-          onPointerMove={(event) => updateHover(cellFromPointer(event))}
-          onPointerLeave={() => updateHover(null)}
-          onPointerDown={(event) => {
-            if (event.button === 2) onCancelSelection();
-          }}
-          onClick={(event) => {
-            const cell = cellFromPointer(event);
-            updateHover(cell);
-            if (!selected) return;
-            const validation = validatePlacement(state, "player", selected, cell.x, cell.y);
-            onHoverMessage(validation.reason);
-            if (validation.valid) onPlace(selected, cell.x, cell.y);
-          }}
-          onContextMenu={(event) => event.preventDefault()}
-          onKeyDown={(event) => {
-            const key = event.key.toLowerCase();
-            if (key === "a") { event.preventDefault(); panCamera(-1); return; }
-            if (key === "d") { event.preventDefault(); panCamera(1); return; }
-            if (event.key === "Home") { event.preventDefault(); moveCameraTo(0); return; }
-            if (event.key === "End") { event.preventDefault(); moveCameraTo(1); return; }
-            if (event.key === "Escape") { onCancelSelection(); return; }
-            if (event.key === "Enter") { commitPlacement(); return; }
-            if (!selected && event.key === "ArrowLeft") { event.preventDefault(); panCamera(-1); return; }
-            if (!selected && event.key === "ArrowRight") { event.preventDefault(); panCamera(1); return; }
-            const movement: Record<string, GridPoint> = {
-              ArrowLeft: { x: -1, y: 0 },
-              ArrowRight: { x: 1, y: 0 },
-              ArrowUp: { x: 0, y: -1 },
-              ArrowDown: { x: 0, y: 1 },
-            };
-            const delta = movement[event.key];
-            if (!delta) return;
-            event.preventDefault();
-            const origin = hover ?? { x: 9, y: 12, source: "keyboard" as const };
-            updateHover({
-              x: Math.max(0, Math.min(GRID_COLUMNS - 1, origin.x + delta.x)),
-              y: Math.max(0, Math.min(GRID_ROWS - 1, origin.y + delta.y)),
-              source: "keyboard",
-            });
-          }}
-        />
+        <div className="battlefield-world">
+          {/* A direct image preserves the lossless board at its authored resolution. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            className="battlefield-map"
+            src="/game/battlefield-panorama.png"
+            alt=""
+            draggable={false}
+            onLoad={() => setMapReady(true)}
+          />
+          <canvas
+            ref={canvasRef}
+            width={Math.round(WORLD_WIDTH * renderScale)}
+            height={Math.round(WORLD_HEIGHT * renderScale)}
+            className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
+            aria-label="The double-width Twin Yards battlefield. Scroll horizontally with the camera controls, mouse wheel, trackpad, touch, or A and D keys. Choose a Foundry below, then place it in either illuminated Daybreak construction field at the far left."
+            tabIndex={0}
+            onPointerMove={(event) => updateHover(cellFromPointer(event))}
+            onPointerLeave={() => updateHover(null)}
+            onPointerDown={(event) => {
+              if (event.button === 2) onCancelSelection();
+            }}
+            onClick={(event) => {
+              const cell = cellFromPointer(event);
+              updateHover(cell);
+              if (!selected) return;
+              const validation = validatePlacement(state, "player", selected, cell.x, cell.y);
+              onHoverMessage(validation.reason);
+              if (validation.valid) onPlace(selected, cell.x, cell.y);
+            }}
+            onContextMenu={(event) => event.preventDefault()}
+            onKeyDown={(event) => {
+              const key = event.key.toLowerCase();
+              if (key === "a") { event.preventDefault(); panCamera(-1); return; }
+              if (key === "d") { event.preventDefault(); panCamera(1); return; }
+              if (event.key === "Home") { event.preventDefault(); moveCameraTo(0); return; }
+              if (event.key === "End") { event.preventDefault(); moveCameraTo(1); return; }
+              if (event.key === "Escape") { onCancelSelection(); return; }
+              if (event.key === "Enter") { commitPlacement(); return; }
+              if (!selected && event.key === "ArrowLeft") { event.preventDefault(); panCamera(-1); return; }
+              if (!selected && event.key === "ArrowRight") { event.preventDefault(); panCamera(1); return; }
+              const movement: Record<string, GridPoint> = {
+                ArrowLeft: { x: -1, y: 0 },
+                ArrowRight: { x: 1, y: 0 },
+                ArrowUp: { x: 0, y: -1 },
+                ArrowDown: { x: 0, y: 1 },
+              };
+              const delta = movement[event.key];
+              if (!delta) return;
+              event.preventDefault();
+              const origin = hover ?? { x: 9, y: 4, source: "keyboard" as const };
+              updateHover({
+                x: Math.max(0, Math.min(GRID_COLUMNS - 1, origin.x + delta.x)),
+                y: Math.max(0, Math.min(GRID_ROWS - 1, origin.y + delta.y)),
+                source: "keyboard",
+              });
+            }}
+          />
+        </div>
       </div>
       <div className="camera-controls" aria-label="Battlefield camera controls">
         <button onClick={() => panCamera(-1)} aria-label="Scroll battlefield left">‹</button>

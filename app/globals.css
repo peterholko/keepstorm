@@ -82,7 +82,10 @@ button:focus-visible, canvas:focus-visible { outline: 3px solid var(--gold-brigh
 .battlefield-scroll::-webkit-scrollbar { height: 10px; }
 .battlefield-scroll::-webkit-scrollbar-track { background: rgba(8, 12, 9, .9); }
 .battlefield-scroll::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #b77f25, var(--gold-bright)); border: 2px solid rgba(8, 12, 9, .9); }
-.battlefield-canvas { display: block; width: auto; height: 100%; max-width: none; max-height: 100%; flex: 0 0 auto; aspect-ratio: 3200 / 896; background: #485c3c url("/game/battlefield-panorama.jpg") center / cover; box-shadow: 0 0 42px rgba(0, 0, 0, .52); touch-action: pan-x; }
+.battlefield-world { position: relative; width: auto; height: 100%; max-width: none; max-height: 100%; flex: 0 0 auto; aspect-ratio: 3200 / 896; overflow: hidden; background: #485c3c; box-shadow: 0 0 42px rgba(0, 0, 0, .52); }
+.battlefield-map, .battlefield-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.battlefield-map { object-fit: fill; pointer-events: none; user-select: none; }
+.battlefield-canvas { background: transparent; touch-action: pan-x; }
 .battlefield-canvas.is-building { cursor: crosshair; }
 .camera-controls { position: absolute; z-index: 6; left: 50%; top: 12px; transform: translateX(-50%); display: grid; grid-template-columns: 31px minmax(150px, 220px) 31px; align-items: stretch; overflow: hidden; background: rgba(10, 15, 11, .86); border: 1px solid rgba(255, 225, 123, .34); border-bottom-color: var(--gold); box-shadow: 0 8px 24px rgba(0, 0, 0, .32); backdrop-filter: blur(8px); }
 .camera-controls > button { border: 0; background: rgba(255, 242, 210, .06); color: var(--gold-bright); cursor: pointer; font: 700 22px/1 var(--serif); }
@@ -222,7 +225,7 @@ button:focus-visible, canvas:focus-visible { outline: 3px solid var(--gold-brigh
   .header-actions button { width: 28px; height: 28px; }
   .battlefield-stage { height: 430px; min-height: 430px; overflow: hidden; }
   .battlefield-scroll { align-items: stretch; }
-  .battlefield-canvas { width: auto; height: 100%; max-width: none; max-height: 426px; }
+  .battlefield-world { max-height: 426px; }
   .camera-controls { left: auto; right: 8px; top: 8px; transform: none; grid-template-columns: 28px minmax(112px, 154px) 28px; }
   .resource-panel { top: 8px; min-width: 124px; padding: 7px 9px; }
   .resource-panel--player { left: 8px; }

@@ -14,7 +14,7 @@ import {
   type RoomCredential,
   type RoomSnapshot,
 } from "@/lib/multiplayer/protocol";
-import { teamForCommander, type CommanderId, type FactionId, type Team } from "@/lib/musterhold/engine";
+import { teamForCommander, type CommanderId, type FactionId, type Team } from "@/lib/keepstorm/engine";
 
 const SEAT_STORAGE_KEY = "keepstorm.multiplayer.seat.v2";
 const TICK_INTERVAL_MS = 150;

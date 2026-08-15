@@ -11,7 +11,7 @@ import {
   type GameState,
   type ResourceStock,
   type Team,
-} from "../lib/musterhold/engine.ts";
+} from "../lib/keepstorm/engine.ts";
 import {
   MULTIPLAYER_PROTOCOL_VERSION,
   RECONNECT_GRACE_MS,

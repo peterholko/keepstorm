@@ -60,4 +60,4 @@ The full game, static assets, API, WebSockets, and per-room Durable Objects depl
 npm run deploy:cloudflare
 ```
 
-The simulation is isolated in `lib/musterhold/engine.ts`; React owns controls and match presentation, while Canvas renders the battlefield and generated sprite atlases. See [docs/architecture.md](docs/architecture.md) for the technical shape and [docs/creative-direction.md](docs/creative-direction.md) for the original setting and asset grammar.
+The simulation is isolated in `lib/keepstorm/engine.ts`; React owns controls and match presentation, while Canvas renders the battlefield and generated sprite atlases. See [docs/architecture.md](docs/architecture.md) for the technical shape and [docs/creative-direction.md](docs/creative-direction.md) for the original setting and asset grammar.

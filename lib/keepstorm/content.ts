@@ -1,3 +1,4 @@
+/** Canonical Keepstorm faction, cohort, structure, and item definitions. */
 export type FactionId = "daybreak" | "briarcrown" | "stormglass";
 export type DamageType = "Hammer" | "Arrow" | "Arc" | "Siege" | "Pure";
 export type ArmorType = "Plate" | "Cloth" | "Ward" | "Fortified" | "Ethereal";

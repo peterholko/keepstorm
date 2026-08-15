@@ -347,7 +347,7 @@ export function startNextRound(state: GameState): GameState {
     reprieveUsed: commanderRecord(() => false),
     rallyHorn: commanderRecord(() => false),
     keepArmorUntil: commanderRecord(() => 0),
-    event: `Round ${state.round + 1}. Rebuild your muster and adapt to the rival's last formation.`,
+    event: `Round ${state.round + 1}. Rebuild your host and adapt to the rival's last formation.`,
     eventSerial: state.eventSerial + 1,
   };
 }

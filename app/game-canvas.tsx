@@ -29,7 +29,7 @@ import {
   type GridPoint,
   type Team,
   type Unit,
-} from "@/lib/musterhold/engine";
+} from "@/lib/keepstorm/engine";
 import { drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
 
 interface LoadedArt {

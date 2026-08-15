@@ -1,7 +1,7 @@
 /** Cloudflare Worker entry point for Keepstorm and its authoritative match rooms. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { teamForCommander } from "../lib/musterhold/engine.ts";
+import { teamForCommander } from "../lib/keepstorm/engine.ts";
 import { isFactionId, isOnlineMatchMode, type CreateRoomResponse, type JoinRoomResponse } from "../lib/multiplayer/protocol.ts";
 import { KeepstormMatchRoom, type RoomSetupResult } from "./match-room.ts";
 

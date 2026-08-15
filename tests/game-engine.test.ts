@@ -28,7 +28,7 @@ import {
   type Team,
   type Unit,
   type UnitKind,
-} from "../lib/musterhold/engine.ts";
+} from "../lib/keepstorm/engine.ts";
 
 function advance(state: GameState, seconds: number): GameState {
   let current = state;

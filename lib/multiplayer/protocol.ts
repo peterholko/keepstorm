@@ -9,7 +9,7 @@ import {
   type MatchMode,
   type ShopItemKind,
   type Team,
-} from "../musterhold/engine.ts";
+} from "../keepstorm/engine.ts";
 
 export const MULTIPLAYER_PROTOCOL_VERSION = 2 as const;
 export const ROOM_CODE_LENGTH = 8;

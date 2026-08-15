@@ -48,7 +48,7 @@ import {
   type ResourceCost,
   type ShopItemKind,
   type Team,
-} from "@/lib/musterhold/engine";
+} from "@/lib/keepstorm/engine";
 
 type Screen = "title" | "game";
 type Overlay = "rules" | "pause" | "leave" | null;
@@ -170,7 +170,7 @@ function TitleScreen({ faction, matchMode, joinCode, onlineBusy, onlineNotice, o
       </section>
 
       <aside className="title-dossier">
-        <span className="eyebrow">SELECTED MUSTER</span>
+        <span className="eyebrow">SELECTED FACTION</span>
         <strong>{chosenFaction.name}</strong>
         <p>{chosenFaction.description}</p>
         <div><span>DOCTRINE</span><b>{chosenFaction.passive}</b></div>
@@ -433,7 +433,7 @@ function ResultModal({ game, localCommander, onlineSnapshot, answer, copied, onA
         </div>
         {final && <fieldset className="feedback-field"><legend>What felt most decisive?</legend><div>{FEEDBACK_CHOICES.map((choice) => <button key={choice} className={answer === choice ? "is-selected" : ""} onClick={() => onAnswer(choice)}>{choice}</button>)}</div></fieldset>}
         <div className="result-actions">
-          <button className="primary-button" disabled={online && (localReady || !roomAvailable)} onClick={final ? onRestart : onContinue}>{online ? !roomAvailable ? "A commander left the room" : localReady ? "Waiting for commanders…" : final ? "Ready for rematch" : "Ready for next round" : final ? "New match" : "Muster next round"} <span>→</span></button>
+          <button className="primary-button" disabled={online && (localReady || !roomAvailable)} onClick={final ? onRestart : onContinue}>{online ? !roomAvailable ? "A commander left the room" : localReady ? "Waiting for commanders…" : final ? "Ready for rematch" : "Ready for next round" : final ? "New match" : "Begin next round"} <span>→</span></button>
           {final && <button className="secondary-button" onClick={onCopy}>{copied ? "Report copied ✓" : "Copy playtest report"}</button>}
           <button className="text-button" onClick={onTitle}>Return to title</button>
         </div>
@@ -648,7 +648,7 @@ export default function Home() {
           <div><b>◆ {Math.floor(localResources.marks)}</b><b>▰ {Math.floor(localResources.timber)}</b><b>✦ {localResources.sigils}</b></div>
           <small>{commanderLabel(localCommander).toUpperCase()} · {FACTIONS[game.factions[localCommander]].name.toUpperCase()}{ally ? ` · ALLY ${FACTIONS[game.factions[ally]].name.toUpperCase()}` : ""}</small>
         </div>
-        <div className={`resource-panel resource-panel--${rivalTeam} is-rival`}><span>{game.matchMode === "2v2" ? "RIVAL TEAM MUSTER" : "RIVAL MUSTER"}</span><b>{buildingCount(game, rivalTeam)} WORKS · {unitCount(game, rivalTeam)} AFIELD</b><small>{teamDisplayName(game, rivalTeam)} · +{incomeFor(game, rivalTeam)} recurring Marks</small></div>
+        <div className={`resource-panel resource-panel--${rivalTeam} is-rival`}><span>{game.matchMode === "2v2" ? "RIVAL TEAM FORCES" : "RIVAL FORCES"}</span><b>{buildingCount(game, rivalTeam)} WORKS · {unitCount(game, rivalTeam)} AFIELD</b><small>{teamDisplayName(game, rivalTeam)} · +{incomeFor(game, rivalTeam)} recurring Marks</small></div>
         <div className={`event-ribbon${hoverMessage && selected ? " is-placement" : ""}`} role="status" aria-live="polite"><i /><span>{hoverMessage && selected ? hoverMessage : game.event}</span>{selectedDescription && <small>{selectedDescription}</small>}</div>
         {tutorial && game.status === "playing" && <TutorialCard game={game} localCommander={localCommander} selected={selected} onDismiss={() => setTutorial(false)} />}
       </section>

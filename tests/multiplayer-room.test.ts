@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInitialState, createMultiplayerState } from "../lib/musterhold/engine.ts";
+import { createInitialState, createMultiplayerState } from "../lib/keepstorm/engine.ts";
 import { isGameCommand, normalizeRoomCode, parseClientMessage } from "../lib/multiplayer/protocol.ts";
 import { advanceMultiplayerGame, applyGameCommand, forfeitGame, phaseForGame } from "../lib/multiplayer/room.ts";
 

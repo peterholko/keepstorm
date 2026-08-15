@@ -18,7 +18,7 @@ import {
   type CommanderId,
   type GameState,
   type Team,
-} from "../musterhold/engine.ts";
+} from "../keepstorm/engine.ts";
 import type { GameCommand, RoomPhase } from "./protocol.ts";
 
 export interface CommandResult {

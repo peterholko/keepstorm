@@ -157,6 +157,10 @@ export interface PlacementValidation {
   path?: GridPoint[];
 }
 
+export interface StepGameOptions {
+  runAi?: boolean;
+}
+
 export const BUILD_AREAS: Record<Team, readonly GridRect[]> = {
   player: [
     { minX: 9, maxX: 19, minY: 4, maxY: 11 },
@@ -253,7 +257,7 @@ export function createInitialState(playerFaction: FactionId = "daybreak", enemyF
     rallyHorn: { player: false, enemy: false },
     keepArmorUntil: { player: 0, enemy: 0 },
     nextId: 1,
-    event: `Choose a ${FACTIONS[playerFaction].name} structure, then place it inside your construction yard.`,
+    event: "Choose a structure, then place it inside your construction yard.",
     eventSerial: 1,
     stats: emptyStats(),
   };
@@ -506,7 +510,7 @@ export function placeBuilding(state: GameState, team: Team, kind: BuildingKind, 
   resources.timber += spec.timberGain;
   const next: GameState = {
     ...state,
-    started: state.started || team === "player",
+    started: true,
     resources: { ...state.resources, [team]: resources },
     buildings: [...state.buildings, building],
     nextId: state.nextId + 1,
@@ -996,9 +1000,7 @@ export function castReprieve(state: GameState, team: Team): GameState {
     nextId: state.nextId + 1,
   };
   const cleaned = collectDefeated(next);
-  return withEvent(cleaned, team === "player"
-    ? "Reprieve! Invaders on your half were erased; the distant host was wounded."
-    : `${FACTIONS[state.factions.enemy].name} invoked Reprieve—your invading cohorts were erased and the rest were wounded.`);
+  return withEvent(cleaned, `${FACTIONS[state.factions[team]].name} invoked Reprieve. Invaders on the ${team === "player" ? "western" : "eastern"} half were erased; the distant host was wounded.`);
 }
 
 function shouldBotCastReprieve(state: GameState): boolean {
@@ -1109,8 +1111,8 @@ function finishRound(state: GameState, winner: Team, reason: string): GameState 
 }
 
 function resolveRound(state: GameState): GameState {
-  if (state.keeps.enemy <= 0) return finishRound(state, "player", "The rival Anchorhold has fallen.");
-  if (state.keeps.player <= 0) return finishRound(state, "enemy", "Your Anchorhold has fallen.");
+  if (state.keeps.enemy <= 0) return finishRound(state, "player", "The eastern Anchorhold has fallen.");
+  if (state.keeps.player <= 0) return finishRound(state, "enemy", "The western Anchorhold has fallen.");
   if (state.elapsed < MATCH_LIMIT) return state;
 
   const unusedPlayer = state.reprieveUsed.player ? 0 : 1;
@@ -1156,7 +1158,7 @@ function processProduction(state: GameState): GameState {
   return next;
 }
 
-export function stepGame(input: GameState, dt: number): GameState {
+export function stepGame(input: GameState, dt: number, options: StepGameOptions = {}): GameState {
   if (input.status !== "playing" || !input.started) return input;
   const safeDt = Math.max(0, Math.min(0.2, dt));
   let state: GameState = {
@@ -1196,7 +1198,7 @@ export function stepGame(input: GameState, dt: number): GameState {
     };
   }
 
-  if (state.aiClock <= 0) {
+  if (options.runAi !== false && state.aiClock <= 0) {
     state = runAi(state);
     state = { ...state, aiClock: 4.8 };
   }
@@ -1210,7 +1212,7 @@ export function stepGame(input: GameState, dt: number): GameState {
     state = { ...state, keepDefenseClock: 1.15 };
   }
 
-  if (shouldBotCastReprieve(state)) state = castReprieve(state, "enemy");
+  if (options.runAi !== false && shouldBotCastReprieve(state)) state = castReprieve(state, "enemy");
 
   return resolveRound(state);
 }
@@ -1233,6 +1235,6 @@ export function matchReport(state: GameState, playtestAnswer?: string): string {
     `Items commissioned: ${state.stats.itemsBought.player} / ${state.stats.itemsBought.enemy}`,
     `Reprieve used this round: ${state.reprieveUsed.player ? "yes" : "no"} / ${state.reprieveUsed.enemy ? "yes" : "no"}`,
     `What felt decisive: ${playtestAnswer || "not answered"}`,
-    "Build: depth-alpha-0.2.0",
+    "Build: multiplayer-alpha-0.3.0",
   ].join("\n");
 }

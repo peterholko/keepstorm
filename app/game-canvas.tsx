@@ -32,6 +32,7 @@ interface LoadedArt {
 
 interface GameCanvasProps {
   state: GameState;
+  localTeam: Team;
   selected: BuildingKind | null;
   selectedBuildingId: number | null;
   onPlace: (kind: BuildingKind, gridX: number, gridY: number) => void;
@@ -285,7 +286,7 @@ function drawRoute(context: CanvasRenderingContext2D, path: GridPoint[] | undefi
   context.restore();
 }
 
-export default function GameCanvas({ state, selected, selectedBuildingId, onPlace, onSelectBuilding, onCancelSelection, onHoverMessage }: GameCanvasProps) {
+export default function GameCanvas({ state, localTeam, selected, selectedBuildingId, onPlace, onSelectBuilding, onCancelSelection, onHoverMessage }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [art, setArt] = useState<LoadedArt | null>(null);
@@ -324,8 +325,16 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
   }, []);
 
   useEffect(() => {
-    if (selected) scrollRef.current?.scrollTo({ left: 0, behavior: "smooth" });
-  }, [selected]);
+    const viewport = scrollRef.current;
+    if (!selected || !viewport) return;
+    viewport.scrollTo({ left: localTeam === "player" ? 0 : viewport.scrollWidth - viewport.clientWidth, behavior: "smooth" });
+  }, [localTeam, selected]);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!mapReady || !viewport) return;
+    viewport.scrollTo({ left: localTeam === "player" ? 0 : viewport.scrollWidth - viewport.clientWidth, behavior: "auto" });
+  }, [localTeam, mapReady]);
 
   useEffect(() => {
     const viewport = scrollRef.current;
@@ -341,8 +350,8 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
 
   const hoverValidation = useMemo(() => {
     if (!selected || !hover) return null;
-    return validatePlacement(state, "player", selected, hover.x, hover.y);
-  }, [hover, selected, state]);
+    return validatePlacement(state, localTeam, selected, hover.x, hover.y);
+  }, [hover, localTeam, selected, state]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -357,8 +366,8 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
     context.fillStyle = "rgba(10, 16, 9, .055)";
     context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-    drawGrid(context, state, "player", Boolean(selected));
-    drawGrid(context, state, "enemy", false);
+    drawGrid(context, state, "player", Boolean(selected) && localTeam === "player");
+    drawGrid(context, state, "enemy", Boolean(selected) && localTeam === "enemy");
 
     if (selected && hover && hoverValidation) {
       const spec = BUILDING_SPECS[selected];
@@ -377,7 +386,7 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
         const dimensions = buildingDimensions({ kind: selected } as Building);
         const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
         const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
-        drawAtlasCell(context, art.factions[state.factions.player], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
+        drawAtlasCell(context, art.factions[state.factions[localTeam]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
         context.restore();
       }
     }
@@ -401,7 +410,7 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
     }
     fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
     drawEffects(context, state);
-  }, [art, hover, hoverValidation, renderScale, selected, selectedBuildingId, state]);
+  }, [art, hover, hoverValidation, localTeam, renderScale, selected, selectedBuildingId, state]);
 
   const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -415,19 +424,19 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
   const updateHover = (cell: HoverCell | null) => {
     setHover(cell);
     if (!cell || !selected) onHoverMessage(null);
-    else onHoverMessage(validatePlacement(state, "player", selected, cell.x, cell.y).reason);
+    else onHoverMessage(validatePlacement(state, localTeam, selected, cell.x, cell.y).reason);
   };
 
   const commitPlacement = () => {
     if (!selected || !hover) return;
-    const validation = validatePlacement(state, "player", selected, hover.x, hover.y);
+    const validation = validatePlacement(state, localTeam, selected, hover.x, hover.y);
     onHoverMessage(validation.reason);
     if (validation.valid) onPlace(selected, hover.x, hover.y);
   };
 
   const selectAtCell = (cell: GridPoint) => {
     const hit = [...state.buildings].reverse().find((building) => {
-      if (building.team !== "player") return false;
+      if (building.team !== localTeam) return false;
       const spec = BUILDING_SPECS[building.kind];
       return cell.x >= building.gridX && cell.x < building.gridX + spec.width && cell.y >= building.gridY && cell.y < building.gridY + spec.height;
     });
@@ -476,7 +485,7 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
               const cell = cellFromPointer(event);
               updateHover(cell);
               if (!selected) { selectAtCell(cell); return; }
-              const validation = validatePlacement(state, "player", selected, cell.x, cell.y);
+              const validation = validatePlacement(state, localTeam, selected, cell.x, cell.y);
               onHoverMessage(validation.reason);
               if (validation.valid) onPlace(selected, cell.x, cell.y);
             }}
@@ -500,7 +509,8 @@ export default function GameCanvas({ state, selected, selectedBuildingId, onPlac
               const delta = movement[event.key];
               if (!delta) return;
               event.preventDefault();
-              const origin = hover ?? { x: 9, y: 4, source: "keyboard" as const };
+              const localArea = BUILD_AREAS[localTeam][0];
+              const origin = hover ?? { x: localArea.minX + 1, y: localArea.minY + 1, source: "keyboard" as const };
               updateHover({
                 x: Math.max(0, Math.min(GRID_COLUMNS - 1, origin.x + delta.x)),
                 y: Math.max(0, Math.min(GRID_ROWS - 1, origin.y + delta.y)),

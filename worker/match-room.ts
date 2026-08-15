@@ -1,0 +1,446 @@
+import { DurableObject } from "cloudflare:workers";
+import { timingSafeEqual } from "node:crypto";
+import {
+  createInitialState,
+  startNextRound,
+  type FactionId,
+  type GameState,
+  type Team,
+} from "../lib/musterhold/engine.ts";
+import {
+  MULTIPLAYER_PROTOCOL_VERSION,
+  RECONNECT_GRACE_MS,
+  parseClientMessage,
+  type RoomPhase,
+  type RoomSeatView,
+  type RoomSnapshot,
+  type ServerMessage,
+} from "../lib/multiplayer/protocol.ts";
+import {
+  advanceMultiplayerGame,
+  applyGameCommand,
+  forfeitGame,
+  phaseForGame,
+} from "../lib/multiplayer/room.ts";
+
+const ROOM_STORAGE_KEY = "room";
+const ROOM_LIFETIME_MS = 24 * 60 * 60 * 1000;
+const MAX_MESSAGE_BYTES = 8_192;
+const MIN_TICK_MS = 40;
+
+interface SocketAttachment {
+  authenticated: boolean;
+  sessionId: string;
+  team?: Team;
+}
+
+interface PersistedRoom {
+  code: string;
+  phase: RoomPhase;
+  factions: Record<Team, FactionId | null>;
+  tokenHashes: Record<Team, string | null>;
+  ready: Record<Team, boolean>;
+  lastSeq: Record<Team, number>;
+  reconnectDeadlines: Record<Team, number | null>;
+  game: GameState | null;
+  revision: number;
+  lastAdvancedAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type RoomSetupResult =
+  | { ok: true; token: string }
+  | { ok: false; code: "conflict" | "not_found" | "room_full"; message: string };
+
+function secureToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesFromHex(value: string): Uint8Array | null {
+  if (!/^[0-9a-f]{64}$/i.test(value)) return null;
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < value.length; index += 2) bytes[index / 2] = Number.parseInt(value.slice(index, index + 2), 16);
+  return bytes;
+}
+
+async function tokenMatches(token: string, expectedHash: string | null): Promise<boolean> {
+  if (!expectedHash) return false;
+  const expected = bytesFromHex(expectedHash);
+  if (!expected) return false;
+  const actual = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return timingSafeEqual(new Uint8Array(actual), expected);
+}
+
+function socketAttachment(socket: WebSocket): SocketAttachment | null {
+  const value: unknown = socket.deserializeAttachment();
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<SocketAttachment>;
+  if (typeof candidate.authenticated !== "boolean" || typeof candidate.sessionId !== "string") return null;
+  if (candidate.team !== undefined && candidate.team !== "player" && candidate.team !== "enemy") return null;
+  return { authenticated: candidate.authenticated, sessionId: candidate.sessionId, team: candidate.team };
+}
+
+function send(socket: WebSocket, message: ServerMessage): void {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  try {
+    socket.send(JSON.stringify(message));
+  } catch {
+    socket.close(1011, "Unable to deliver match update");
+  }
+}
+
+export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
+  async createRoom(code: string, faction: FactionId): Promise<RoomSetupResult> {
+    const existing = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    if (existing) return { ok: false, code: "conflict", message: "That invitation code is already in use." };
+
+    const token = secureToken();
+    const now = Date.now();
+    const room: PersistedRoom = {
+      code,
+      phase: "waiting",
+      factions: { player: faction, enemy: null },
+      tokenHashes: { player: await hashToken(token), enemy: null },
+      ready: { player: false, enemy: false },
+      lastSeq: { player: 0, enemy: 0 },
+      reconnectDeadlines: { player: null, enemy: null },
+      game: null,
+      revision: 1,
+      lastAdvancedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.ctx.storage.put(ROOM_STORAGE_KEY, room);
+    await this.ctx.storage.setAlarm(now + ROOM_LIFETIME_MS);
+    return { ok: true, token };
+  }
+
+  async joinRoom(faction: FactionId): Promise<RoomSetupResult> {
+    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    if (!room) return { ok: false, code: "not_found", message: "That Keepstorm room does not exist." };
+    if (room.tokenHashes.enemy) return { ok: false, code: "room_full", message: "That Keepstorm room already has two commanders." };
+
+    const token = secureToken();
+    room.factions.enemy = faction;
+    room.tokenHashes.enemy = await hashToken(token);
+    room.updatedAt = Date.now();
+    room.revision += 1;
+    await this.ctx.storage.put(ROOM_STORAGE_KEY, room);
+    this.broadcast(room);
+    return { ok: true, token };
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return Response.json({ error: "Expected a WebSocket upgrade." }, { status: 426 });
+    }
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ authenticated: false, sessionId: crypto.randomUUID() } satisfies SocketAttachment);
+    send(server, { type: "hello_required", protocol: MULTIPLAYER_PROTOCOL_VERSION });
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
+    if (typeof rawMessage !== "string" || rawMessage.length > MAX_MESSAGE_BYTES) {
+      send(socket, { type: "error", code: "invalid_message", message: "The command was not valid Keepstorm data." });
+      return;
+    }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(rawMessage);
+    } catch {
+      send(socket, { type: "error", code: "invalid_json", message: "The command could not be read." });
+      return;
+    }
+    const message = parseClientMessage(value);
+    if (!message) {
+      send(socket, { type: "error", code: "invalid_message", message: "The command did not match this multiplayer version." });
+      return;
+    }
+
+    const attachment = socketAttachment(socket);
+    if (!attachment) {
+      send(socket, { type: "error", code: "invalid_session", message: "This multiplayer connection could not be restored." });
+      socket.close(4003, "Invalid connection state");
+      return;
+    }
+    if (!attachment?.authenticated) {
+      if (message.type !== "hello") {
+        send(socket, { type: "error", code: "authentication_required", message: "Reconnect with the invitation seat token." });
+        return;
+      }
+      await this.authenticate(socket, attachment, message.token);
+      return;
+    }
+    if (!attachment.team || message.type === "hello") {
+      send(socket, { type: "error", code: "invalid_session", message: "This multiplayer seat is no longer valid." });
+      return;
+    }
+
+    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    if (!room) {
+      send(socket, { type: "error", code: "room_closed", message: "This Keepstorm room has expired." });
+      socket.close(4004, "Room expired");
+      return;
+    }
+
+    if (message.type === "tick") {
+      const changed = this.advanceRoom(room, Date.now());
+      if (changed) {
+        await this.persist(room);
+        this.broadcast(room);
+      }
+      return;
+    }
+
+    if (message.type === "leave_room") {
+      await this.leaveRoom(room, attachment.team, socket, attachment.sessionId);
+      return;
+    }
+
+    if (message.type === "set_ready") {
+      room.ready[attachment.team] = message.ready;
+      this.transitionReadyRoom(room, Date.now());
+      room.revision += 1;
+      await this.persist(room);
+      this.broadcast(room);
+      return;
+    }
+
+    if (message.seq <= room.lastSeq[attachment.team]) {
+      send(socket, { type: "error", code: "duplicate_command", message: "That command was already processed.", seq: message.seq });
+      return;
+    }
+    room.lastSeq[attachment.team] = message.seq;
+    this.advanceRoom(room, Date.now());
+    if (room.phase !== "playing" || !room.game) {
+      await this.persist(room);
+      send(socket, { type: "error", code: "match_not_playing", message: "The match is not accepting battlefield commands.", seq: message.seq });
+      return;
+    }
+
+    const result = applyGameCommand(room.game, attachment.team, message.command);
+    if (!result.accepted) {
+      await this.persist(room);
+      send(socket, { type: "error", code: "command_rejected", message: result.message, seq: message.seq });
+      return;
+    }
+
+    room.game = result.state;
+    room.phase = phaseForGame(result.state);
+    if (room.phase !== "playing") room.ready = { player: false, enemy: false };
+    room.revision += 1;
+    await this.persist(room);
+    send(socket, { type: "ack", seq: message.seq, revision: room.revision });
+    this.broadcast(room);
+  }
+
+  async webSocketClose(socket: WebSocket): Promise<void> {
+    await this.markDisconnected(socket);
+  }
+
+  async webSocketError(socket: WebSocket): Promise<void> {
+    await this.markDisconnected(socket);
+  }
+
+  async alarm(): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) socket.close(4000, "Keepstorm room expired");
+    await this.ctx.storage.deleteAll();
+  }
+
+  private async authenticate(socket: WebSocket, attachment: SocketAttachment, token: string): Promise<void> {
+    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    if (!room) {
+      send(socket, { type: "error", code: "room_closed", message: "This Keepstorm room has expired." });
+      socket.close(4004, "Room expired");
+      return;
+    }
+
+    let team: Team | null = null;
+    if (await tokenMatches(token, room.tokenHashes.player)) team = "player";
+    else if (await tokenMatches(token, room.tokenHashes.enemy)) team = "enemy";
+    if (!team) {
+      send(socket, { type: "error", code: "invalid_token", message: "That invitation seat token is not valid." });
+      socket.close(4003, "Invalid seat token");
+      return;
+    }
+
+    for (const existing of this.ctx.getWebSockets()) {
+      if (existing === socket) continue;
+      const existingAttachment = socketAttachment(existing);
+      if (existingAttachment?.authenticated && existingAttachment.team === team) existing.close(4001, "Seat reconnected elsewhere");
+    }
+
+    socket.serializeAttachment({ ...attachment, authenticated: true, team } satisfies SocketAttachment);
+    room.reconnectDeadlines[team] = null;
+    room.lastAdvancedAt = Date.now();
+    this.transitionReadyRoom(room, room.lastAdvancedAt);
+    room.revision += 1;
+    await this.persist(room);
+    this.broadcast(room);
+  }
+
+  private transitionReadyRoom(room: PersistedRoom, now: number): void {
+    const bothClaimed = Boolean(room.factions.player && room.factions.enemy);
+    const bothConnected = this.isConnected("player") && this.isConnected("enemy");
+    const bothReady = room.ready.player && room.ready.enemy;
+    if (!bothClaimed || !bothConnected || !bothReady) return;
+
+    if (room.phase === "waiting" || room.phase === "match_complete") {
+      room.game = createInitialState(room.factions.player!, room.factions.enemy!);
+    } else if (room.phase === "round_complete" && room.game) {
+      room.game = startNextRound(room.game);
+    } else {
+      return;
+    }
+    room.phase = "playing";
+    room.ready = { player: false, enemy: false };
+    room.reconnectDeadlines = { player: null, enemy: null };
+    room.lastAdvancedAt = now;
+  }
+
+  private advanceRoom(room: PersistedRoom, now: number): boolean {
+    if (room.phase !== "playing" || !room.game) return false;
+    const playerConnected = this.isConnected("player");
+    const enemyConnected = this.isConnected("enemy");
+    if (!playerConnected || !enemyConnected) {
+      const loser = (["player", "enemy"] as Team[]).find((team) => {
+        const deadline = room.reconnectDeadlines[team];
+        return !this.isConnected(team) && deadline !== null && now >= deadline;
+      });
+      if (loser) {
+        room.game = forfeitGame(room.game, loser);
+        room.phase = "match_complete";
+        room.ready = { player: false, enemy: false };
+        room.revision += 1;
+        return true;
+      }
+      return false;
+    }
+
+    const elapsedMs = now - room.lastAdvancedAt;
+    if (elapsedMs < MIN_TICK_MS) return false;
+    room.game = advanceMultiplayerGame(room.game, elapsedMs / 1000);
+    room.lastAdvancedAt = now;
+    const nextPhase = phaseForGame(room.game);
+    if (nextPhase !== room.phase) room.ready = { player: false, enemy: false };
+    room.phase = nextPhase;
+    room.revision += 1;
+    return true;
+  }
+
+  private async markDisconnected(socket: WebSocket): Promise<void> {
+    const attachment = socketAttachment(socket);
+    if (!attachment?.authenticated || !attachment.team || this.isConnected(attachment.team, socket)) return;
+    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    if (!room) return;
+    if (room.phase === "waiting") room.ready[attachment.team] = false;
+    if (room.phase === "playing") {
+      room.reconnectDeadlines[attachment.team] = Date.now() + RECONNECT_GRACE_MS;
+      room.lastAdvancedAt = Date.now();
+    }
+    room.revision += 1;
+    await this.persist(room);
+    this.broadcast(room);
+  }
+
+  private async leaveRoom(room: PersistedRoom, team: Team, socket: WebSocket, sessionId: string): Promise<void> {
+    socket.serializeAttachment({ authenticated: false, sessionId } satisfies SocketAttachment);
+
+    if (room.phase === "playing" && room.game) {
+      room.game = forfeitGame(room.game, team);
+      room.phase = "match_complete";
+      room.ready = { player: false, enemy: false };
+      room.reconnectDeadlines = { player: null, enemy: null };
+      if (team === "enemy") this.clearGuestSeat(room);
+      room.revision += 1;
+      await this.persist(room);
+      this.broadcast(room);
+      socket.close(1000, "Commander left the match");
+      return;
+    }
+
+    if (team === "enemy") {
+      this.clearGuestSeat(room);
+      room.game = null;
+      room.phase = "waiting";
+      room.ready = { player: false, enemy: false };
+      room.revision += 1;
+      await this.persist(room);
+      this.broadcast(room);
+      socket.close(1000, "Commander left the room");
+      return;
+    }
+
+    for (const connected of this.ctx.getWebSockets()) {
+      connected.serializeAttachment({ authenticated: false, sessionId: socketAttachment(connected)?.sessionId ?? crypto.randomUUID() } satisfies SocketAttachment);
+      if (connected !== socket) send(connected, { type: "error", code: "room_closed", message: "The room host closed this Keepstorm room." });
+      connected.close(1000, "Room host left");
+    }
+    await this.ctx.storage.deleteAll();
+  }
+
+  private clearGuestSeat(room: PersistedRoom): void {
+    room.factions.enemy = null;
+    room.tokenHashes.enemy = null;
+    room.ready.enemy = false;
+    room.lastSeq.enemy = 0;
+    room.reconnectDeadlines.enemy = null;
+  }
+
+  private isConnected(team: Team, excluding?: WebSocket): boolean {
+    return this.ctx.getWebSockets().some((socket) => {
+      if (socket === excluding || socket.readyState !== WebSocket.OPEN) return false;
+      const attachment = socketAttachment(socket);
+      return attachment?.authenticated === true && attachment.team === team;
+    });
+  }
+
+  private seatView(room: PersistedRoom, team: Team): RoomSeatView {
+    return {
+      faction: room.factions[team],
+      claimed: room.tokenHashes[team] !== null,
+      connected: this.isConnected(team),
+      ready: room.ready[team],
+      reconnectDeadline: room.reconnectDeadlines[team],
+    };
+  }
+
+  private snapshot(room: PersistedRoom, localTeam: Team): RoomSnapshot {
+    return {
+      code: room.code,
+      phase: room.phase,
+      revision: room.revision,
+      localTeam,
+      seats: {
+        player: this.seatView(room, "player"),
+        enemy: this.seatView(room, "enemy"),
+      },
+      game: room.game,
+    };
+  }
+
+  private broadcast(room: PersistedRoom): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socketAttachment(socket);
+      if (!attachment?.authenticated || !attachment.team) continue;
+      send(socket, { type: "snapshot", snapshot: this.snapshot(room, attachment.team) });
+    }
+  }
+
+  private async persist(room: PersistedRoom): Promise<void> {
+    room.updatedAt = Date.now();
+    await this.ctx.storage.put(ROOM_STORAGE_KEY, room);
+  }
+}

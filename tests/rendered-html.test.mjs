@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
+
+register(new URL("./cloudflare-workers-loader.mjs", import.meta.url), import.meta.url);
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -23,7 +26,7 @@ test("renders the Keepstorm alpha title experience", async () => {
   assert.match(html, /KEEPSTORM/);
   assert.match(html, /Build the answer\./);
   assert.match(html, /Daybreak Company/);
-  assert.match(html, /DEPTH ALPHA/);
+  assert.match(html, /MULTIPLAYER ALPHA/);
   assert.match(html, /Three asymmetric factions/);
   assert.match(html, /Twenty-four structures/);
   assert.match(html, /Fifteen ability-driven cohorts/);

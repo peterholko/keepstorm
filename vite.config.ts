@@ -13,7 +13,23 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
+  compatibility_date: "2026-05-22",
   compatibility_flags: ["nodejs_compat"],
+  durable_objects: {
+    bindings: [
+      {
+        name: "MATCH_ROOMS",
+        class_name: "KeepstormMatchRoom",
+      },
+    ],
+  },
+  migrations: [
+    {
+      tag: "keepstorm-match-room-v1",
+      new_sqlite_classes: ["KeepstormMatchRoom"],
+    },
+  ],
+  observability: { enabled: true },
   d1_databases: d1
     ? [
         {

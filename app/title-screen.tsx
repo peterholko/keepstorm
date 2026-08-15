@@ -84,7 +84,10 @@ export default function TitleScreen({
       </header>
 
       <section className="start-shell" aria-labelledby="start-heading">
-        <p className="title-summary">Your buildings spawn units on their own. Destroy the enemy Anchorhold first.</p>
+        <div className="title-banner">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/keepstorm-banner-v1.png" alt="Keepstorm" width="1200" height="437" />
+        </div>
         <div className="start-panel">
           <StartSteps current={step === "mode" ? 1 : 2} online={online} />
 

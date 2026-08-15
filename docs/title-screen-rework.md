@@ -9,7 +9,7 @@ Unchanged proper names and labels are omitted. Dynamic values are shown in brace
 | Header | `TEAM ALPHA · 0.4` | `Alpha 0.4` |
 | Title intro | `AN AUTOMATED SIEGE STRATEGY GAME` | Removed |
 | Title heading | `Build the answer. Time the march.` | `Start a game` on Step 1; `Choose your faction` on Step 2 |
-| Title description | `Command an asymmetric host across a living construction yard, then outthink a rival through counters, upgrades, economy, formation timing, and combined arms.` | `Your buildings spawn units on their own. Destroy the enemy Anchorhold first.` |
+| Title description | `Command an asymmetric host across a living construction yard, then outthink a rival through counters, upgrades, economy, formation timing, and combined arms.` | Removed; replaced by the centered Keepstorm image banner |
 | Step guidance | Not present | `Choose how you want to play.` |
 | Progress | Not present | `1 Mode`, `2 Faction`, and online-only `3 Lobby` |
 | Solo option | `Solo skirmish →` | `Solo` / `Play against the AI` |

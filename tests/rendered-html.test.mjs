@@ -13,14 +13,14 @@ async function render() {
   );
 }
 
-test("renders the Musterhold alpha title experience", async () => {
+test("renders the Keepstorm alpha title experience", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Musterhold — Build the answer\. Time the march\.<\/title>/i);
-  assert.match(html, /MUSTERHOLD/);
+  assert.match(html, /<title>Keepstorm — Build the answer\. Time the march\.<\/title>/i);
+  assert.match(html, /KEEPSTORM/);
   assert.match(html, /Build the answer\./);
   assert.match(html, /Daybreak Company/);
   assert.match(html, /DEPTH ALPHA/);
@@ -28,6 +28,6 @@ test("renders the Musterhold alpha title experience", async () => {
   assert.match(html, /Twenty-four structures/);
   assert.match(html, /Fifteen ability-driven cohorts/);
   assert.match(html, /og\.png/);
-  assert.doesNotMatch(html, /KEEPSTORM|Heartkeep|Stormbreak/);
+  assert.doesNotMatch(html, /Heartkeep|Stormbreak/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview|react-loading-skeleton/);
 });

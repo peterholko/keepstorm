@@ -106,8 +106,8 @@ function TitleScreen({ faction, onFaction, onPlay, onRules }: { faction: Faction
       <div className="title-art" aria-hidden="true" />
       <div className="title-vignette" aria-hidden="true" />
       <header className="title-header">
-        <span className="brand-rune">M</span>
-        <strong>MUSTERHOLD</strong>
+        <span className="brand-rune">K</span>
+        <strong>KEEPSTORM</strong>
         <span className="alpha-label">DEPTH ALPHA · 0.2</span>
       </header>
 
@@ -218,7 +218,7 @@ function GameHeader({ game, onRules, onPause, onLeave }: { game: GameState; onRu
   const enemyFaction = FACTIONS[game.factions.enemy];
   return (
     <header className="game-header">
-      <button className="game-brand" onClick={onLeave} aria-label="Return to title screen"><span className="brand-rune">M</span><strong>MUSTERHOLD</strong></button>
+      <button className="game-brand" onClick={onLeave} aria-label="Return to title screen"><span className="brand-rune">K</span><strong>KEEPSTORM</strong></button>
       <div className="keep-score keep-score--player">
         <div><b style={{ color: playerFaction.color }}>{playerFaction.name.toUpperCase()}</b><span>{Math.ceil(game.keeps.player)} / {KEEP_MAX_HP}</span></div>
         <i><span style={{ width: `${playerRatio * 100}%`, background: playerFaction.color }} /></i>

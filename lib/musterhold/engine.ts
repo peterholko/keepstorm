@@ -1220,7 +1220,7 @@ export function matchReport(state: GameState, playtestAnswer?: string): string {
   const enemy = FACTIONS[state.factions.enemy].name;
   const result = state.status === "won" ? `${player} victory` : state.status === "lost" ? `${enemy} victory` : state.status.replace("_", " ");
   return [
-    "MUSTERHOLD PLAYTEST ALPHA — MATCH REPORT",
+    "KEEPSTORM PLAYTEST ALPHA — MATCH REPORT",
     `Result: ${result}`,
     `Rounds: ${state.roundWins.player} / ${state.roundWins.enemy}`,
     `Total duration: ${Math.floor(state.totalElapsed / 60)}:${String(Math.floor(state.totalElapsed % 60)).padStart(2, "0")}`,

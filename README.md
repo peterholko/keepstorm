@@ -1,8 +1,8 @@
-# Musterhold
+# Keepstorm
 
 **Place wisely. March relentlessly.**
 
-Musterhold is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, follow cohorts across a double-width scrolling battlefield, and break the rival Anchorhold before the five-minute ledger closes.
+Keepstorm is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, follow cohorts across a double-width scrolling battlefield, and break the rival Anchorhold before the five-minute ledger closes.
 
 This repository contains the closed Alpha: one complete solo skirmish against an adaptive Nightveil opponent, with finished original battlefield, faction, building, unit, icon, and title artwork.
 

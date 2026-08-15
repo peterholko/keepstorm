@@ -1,17 +1,17 @@
-# Musterhold creative direction
+# Keepstorm creative direction
 
 Status: original closed-Alpha identity; trademark and storefront clearance are still required before commercial release.
 
 ## Brand
 
-- **Title:** Musterhold
+- **Title:** Keepstorm
 - **Tagline:** Place wisely. March relentlessly.
 - **Genre line:** Automated siege strategy
 - **Short pitch:** Shape a construction yard, raise specialized mechanical cohorts, counter an adaptive rival, and break its Anchorhold before the ledger closes.
 
 ## World
 
-Musterhold is set in a bright, handcrafted frontier where rival charter companies settle disputes by building temporary army foundries. Every structure is part workshop, part civic monument. Armies are constructed machines and animated tools rather than familiar fantasy species.
+Keepstorm is set in a bright, handcrafted frontier where rival charter companies settle disputes by building temporary army foundries. Every structure is part workshop, part civic monument. Armies are constructed machines and animated tools rather than familiar fantasy species.
 
 The Alpha match is **The Twin Yards**:
 
@@ -56,5 +56,5 @@ The generated originals remain in the project’s art-generation archive; deploy
 
 - Do not use names, characters, UI layouts, audio, artwork, maps, or lore from an existing game or mod.
 - Keep the premise centered on charter companies, constructed cohorts, route-aware yards, and ledgers.
-- Add mechanics because they strengthen Musterhold’s placement and counterplay, not to reproduce another title’s content catalogue.
+- Add mechanics because they strengthen Keepstorm’s placement and counterplay, not to reproduce another title’s content catalogue.
 - Maintain prompt records and source masters for every approved generated asset.

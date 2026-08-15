@@ -1,4 +1,4 @@
-# Musterhold Alpha architecture
+# Keepstorm Alpha architecture
 
 ## Current product boundary
 

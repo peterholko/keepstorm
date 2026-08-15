@@ -16,25 +16,29 @@ async function render() {
   );
 }
 
-test("renders the Keepstorm alpha title experience", async () => {
+test("renders the first step of the Keepstorm start flow", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Keepstorm — Build the answer\. Time the march\.<\/title>/i);
+  assert.match(html, /<title>Keepstorm<\/title>/i);
   assert.match(html, /KEEPSTORM/);
-  assert.match(html, /Build the answer\./);
-  assert.match(html, /Daybreak Company/);
-  assert.match(html, /TEAM ALPHA/);
-  assert.match(html, /2v2 Teams/);
-  assert.match(html, /Three asymmetric factions/);
-  assert.match(html, /Twenty-four structures/);
-  assert.match(html, /Fifteen ability-driven cohorts/);
+  assert.match(html, /Alpha 0\.4/);
+  assert.match(html, /Your buildings spawn units on their own\. Destroy the enemy Anchorhold first\./);
+  assert.match(html, /Start a game/);
+  assert.match(html, /Play against the AI/);
+  assert.match(html, /Online with 2 players/);
+  assert.match(html, /Online with 2 teams of 2/);
+  assert.match(html, /Join a game/);
+  assert.match(html, /Enter a code from a friend/);
+  assert.match(html, /How to play/);
   assert.match(html, /og\.png/);
   assert.match(html, /keepstorm-crest-v1\.png/);
   assert.match(html, /favicon\.ico/);
   assert.match(html, /apple-touch-icon\.png/);
+  assert.doesNotMatch(html, /Daybreak Company|Briarcrown Covenant|Stormglass Collegium/);
+  assert.doesNotMatch(html, /Build the answer|Time the march|TEAM ALPHA|DOCTRINE|ARSENAL|AUTHORITATIVE ROOM/);
   assert.doesNotMatch(html, /Heartkeep|Stormbreak/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview|react-loading-skeleton/);
 });

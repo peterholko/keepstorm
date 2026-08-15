@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Keepstorm — Build the answer. Time the march.",
+  title: "Keepstorm",
   description:
-    "Choose an asymmetric faction, place and upgrade structures across a scrolling battlefield, synchronize automatic cohorts, and outbuild an adaptive rival in Keepstorm.",
+    "A browser strategy game where buildings create units automatically and players race to destroy the enemy Anchorhold.",
   keywords: ["strategy game", "browser game", "base building", "auto battler", "Keepstorm"],
   icons: {
     icon: [
@@ -15,16 +15,16 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
   },
   openGraph: {
-    title: "Keepstorm — Build the answer. Time the march.",
-    description: "Command one of three original factions through counters, economy, upgrades, abilities, and synchronized siege waves.",
+    title: "Keepstorm",
+    description: "Build structures that create units automatically, then destroy the enemy Anchorhold.",
     type: "website",
     siteName: "Keepstorm",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Original automated siege forces clash in Keepstorm" }],
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Keepstorm browser strategy game" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Keepstorm — Build the answer. Time the march.",
-    description: "Choose a faction, shape a 2D construction yard, and outmatch an adaptive rival.",
+    title: "Keepstorm",
+    description: "Build structures that create units automatically, then destroy the enemy Anchorhold.",
     images: ["/og.png"],
   },
 };

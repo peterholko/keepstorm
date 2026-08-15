@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import AtlasSprite from "./atlas-sprite";
+import BrandMark from "./brand-mark";
 import GameCanvas from "./game-canvas";
+import LobbyModal from "./lobby-modal";
+import RulesModal from "./rules-modal";
+import TitleScreen, { type StartMode, type StartStep } from "./title-screen";
 import { useMultiplayer } from "./use-multiplayer";
-import { ROOM_CODE_LENGTH, normalizeRoomCode, seatsForMode, type OnlineMatchMode, type RoomSnapshot } from "@/lib/multiplayer/protocol";
+import { normalizeRoomCode, seatsForMode, type RoomSnapshot } from "@/lib/multiplayer/protocol";
 import {
   BUILDING_CAP,
   BUILDING_SPECS,
   FACTIONS,
-  FACTION_IDS,
   KEEP_MAX_HP,
   MATCH_LIMIT,
   REPRIEVE_READY_AT,
@@ -63,13 +66,6 @@ const SHOP_GLYPHS: Record<ShopItemKind, string> = {
   sigil_shard: "✦",
 };
 
-function BrandMark() {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img className="brand-mark" src="/brand/keepstorm-crest-v1.png" alt="" aria-hidden="true" />
-  );
-}
-
 function formatClock(seconds: number): string {
   const whole = Math.max(0, Math.ceil(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
@@ -81,170 +77,6 @@ function costText(cost: ResourceCost): string {
     cost.timber ? `${cost.timber} T` : null,
     cost.sigils ? `${cost.sigils} S` : null,
   ].filter(Boolean).join(" · ");
-}
-
-function RulesModal({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-heading">
-        <button className="modal-close" onClick={onClose} aria-label="Close field guide">×</button>
-        <span className="eyebrow">FIELD GUIDE · THE FULL WAR LEDGER</span>
-        <h2 id="rules-heading">Build an army that answers the army coming back.</h2>
-        <p className="rules-lead">Your structures raise cohorts automatically. The strategic game is choosing a faction, shaping the yard, reading armor, timing waves, and deciding when to trade growth for immediate power.</p>
-
-        <div className="rule-steps rule-steps--depth">
-          <article><i>01</i><div><b>Three asymmetric factions</b><span>Daybreak protects formations, Briarcrown regenerates, and Stormglass accelerates production and attacks. Each has five troop lines, one special, one economy work, and one tower.</span></div></article>
-          <article><i>02</i><div><b>Three-resource economy</b><span>Marks pay for everything. Normal structures return Timber for advanced works. Sigils are scarce and unlock legendary troop upgrades.</span></div></article>
-          <article><i>03</i><div><b>Five damage and armor classes</b><span>Hammer, Arrow, Arc, Siege, and Pure attacks interact differently with Plate, Cloth, Ward, Fortified, and Ethereal armor. Air also demands an attacker that can reach it.</span></div></article>
-          <article><i>04</i><div><b>Veteran and legendary ranks</b><span>Select one of your structures on the map to improve its health, cohort strength, ability power, income, and production speed. Troop legendaries consume a Sigil.</span></div></article>
-          <article><i>05</i><div><b>Specials, towers, and items</b><span>Faction works shield, heal, or disrupt. Towers hold your yard but invite Siege. Shop commissions provide permanent tempo or powerful one-use interventions.</span></div></article>
-          <article><i>06</i><div><b>Wave synchronization</b><span>Rally Sync releases every active Foundry together at the slowest cadence. Pause individual Foundries for manual timing, or keep them independent for maximum throughput.</span></div></article>
-          <article><i>07</i><div><b>One Reprieve per round</b><span>After 1:15, your emergency seal erases invaders on your half and wounds the distant host. An unused seal can also decide a time-limit tie.</span></div></article>
-          <article><i>08</i><div><b>First to two rounds</b><span>Destroy the rival Anchorhold. At the time limit, unused Reprieve, then income, keep health, and remaining army strength resolve the ledger in that order.</span></div></article>
-          <article><i>09</i><div><b>True 2v2 alliances</b><span>Four commanders bring separate factions, reserves, income, yards, structures, items, Rally Sync, and Reprieves. Allies share one Anchorhold and one battlefield army, so complementary counters and synchronized waves decide the road.</span></div></article>
-        </div>
-
-        <div className="counter-ledger" aria-label="Damage relationships">
-          <div><b>HAMMER</b><span>crushes Plate</span></div>
-          <div><b>ARROW</b><span>cuts Cloth</span></div>
-          <div><b>ARC</b><span>breaks Ward</span></div>
-          <div><b>SIEGE</b><span>shatters Fortified</span></div>
-          <div><b>PURE</b><span>always deals steady damage</span></div>
-        </div>
-
-        <button className="primary-button" onClick={onClose}>Open the war ledger <span>→</span></button>
-      </section>
-    </div>
-  );
-}
-
-function TitleScreen({ faction, matchMode, joinCode, onlineBusy, onlineNotice, onFaction, onMode, onPlay, onCreateRoom, onJoinCode, onJoinRoom, onRules }: {
-  faction: FactionId;
-  matchMode: OnlineMatchMode;
-  joinCode: string;
-  onlineBusy: boolean;
-  onlineNotice: string | null;
-  onFaction: (faction: FactionId) => void;
-  onMode: (mode: OnlineMatchMode) => void;
-  onPlay: () => void;
-  onCreateRoom: () => void;
-  onJoinCode: (code: string) => void;
-  onJoinRoom: () => void;
-  onRules: () => void;
-}) {
-  const chosenFaction = FACTIONS[faction];
-  return (
-    <main className="title-screen">
-      <div className="title-art" aria-hidden="true" />
-      <div className="title-vignette" aria-hidden="true" />
-      <header className="title-header">
-        <BrandMark />
-        <strong>KEEPSTORM</strong>
-        <span className="alpha-label">TEAM ALPHA · 0.4</span>
-      </header>
-
-      <section className="hero-copy">
-        <span className="eyebrow">AN AUTOMATED SIEGE STRATEGY GAME</span>
-        <h1>Build the answer.<br />Time the march.</h1>
-        <p>Command an asymmetric host across a living construction yard, then outthink a rival through counters, upgrades, economy, formation timing, and combined arms.</p>
-        <div className="faction-picker" aria-label="Choose your faction">
-          {FACTION_IDS.map((id) => {
-            const option = FACTIONS[id];
-            return (
-              <button key={id} className={id === faction ? "is-selected" : ""} style={id === faction ? { borderColor: option.color } : undefined} onClick={() => onFaction(id)} aria-pressed={id === faction}>
-                <i style={{ background: option.color }}>{option.crest}</i>
-                <span><b>{option.name}</b><small>{option.epithet}</small></span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="match-mode-picker" aria-label="Choose an online room size">
-          <button className={matchMode === "1v1" ? "is-selected" : ""} onClick={() => onMode("1v1")} aria-pressed={matchMode === "1v1"}><b>1v1 Duel</b><small>Two commanders · both yards</small></button>
-          <button className={matchMode === "2v2" ? "is-selected" : ""} onClick={() => onMode("2v2")} aria-pressed={matchMode === "2v2"}><b>2v2 Teams</b><small>Four commanders · personal yards & reserves</small></button>
-        </div>
-        <div className="hero-actions">
-          <button className="primary-button primary-button--hero" onClick={onPlay}>Solo skirmish <span>→</span></button>
-          <button className="secondary-button online-create-button" onClick={onCreateRoom} disabled={onlineBusy}>{onlineBusy ? "Opening room…" : `Create ${matchMode} room`}</button>
-          <button className="text-button" onClick={onRules}>Read the field guide <span>↗</span></button>
-        </div>
-        <form className="join-room-form" onSubmit={(event) => { event.preventDefault(); onJoinRoom(); }}>
-          <label htmlFor="room-code">JOIN A COMMANDER</label>
-          <input id="room-code" value={joinCode} onChange={(event) => onJoinCode(normalizeRoomCode(event.target.value))} placeholder="8-CHAR CODE" maxLength={ROOM_CODE_LENGTH} autoComplete="off" spellCheck={false} />
-          <button type="submit" disabled={onlineBusy || joinCode.length !== ROOM_CODE_LENGTH}>Join room</button>
-        </form>
-        {onlineNotice && <p className="online-notice" role="alert">{onlineNotice}</p>}
-        <div className="hero-facts"><span>Three asymmetric factions</span><span>Twenty-four structures</span><span>Fifteen ability-driven cohorts</span></div>
-      </section>
-
-      <aside className="title-dossier">
-        <span className="eyebrow">SELECTED FACTION</span>
-        <strong>{chosenFaction.name}</strong>
-        <p>{chosenFaction.description}</p>
-        <div><span>DOCTRINE</span><b>{chosenFaction.passive}</b></div>
-        <div><span>ARSENAL</span><b>5 cohorts · special · economy · tower</b></div>
-        <div><span>VICTORY</span><b>Win two rounds · solo, online 1v1 or team 2v2</b></div>
-      </aside>
-
-      <footer className="title-footer">ORIGINAL ALPHA ART · KEYBOARD, MOUSE & TOUCH</footer>
-    </main>
-  );
-}
-
-function LobbyModal({ snapshot, roomCode, localCommander, connection, copied, onCopy, onReady, onLeave }: {
-  snapshot: RoomSnapshot | null;
-  roomCode: string;
-  localCommander: CommanderId | null;
-  connection: string;
-  copied: boolean;
-  onCopy: () => void;
-  onReady: (ready: boolean) => void;
-  onLeave: () => void;
-}) {
-  const mode = snapshot?.mode ?? "1v1";
-  const requiredSeats = seatsForMode(mode);
-  const localSeat = localCommander && snapshot ? snapshot.seats[localCommander] : null;
-  const assembled = snapshot ? requiredSeats.filter((commander) => snapshot.seats[commander].claimed).length : 0;
-  const localTeam = localCommander ? teamForCommander(localCommander) : null;
-  const allAssembled = assembled === requiredSeats.length;
-  const canReady = connection === "connected" && allAssembled && requiredSeats.every((commander) => snapshot?.seats[commander].connected);
-
-  return (
-    <div className="modal-backdrop lobby-backdrop">
-      <section className="lobby-modal" role="dialog" aria-modal="true" aria-labelledby="lobby-heading">
-        <span className="eyebrow">LIVE {mode.toUpperCase()} · AUTHORITATIVE ROOM</span>
-        <h2 id="lobby-heading">{allAssembled ? `${requiredSeats.length} commanders assembled.` : `${assembled} of ${requiredSeats.length} seats claimed.`}</h2>
-        <p>{allAssembled ? "Every commander chooses readiness. In team mode, allies keep separate factions, reserves, yards, and wave controls." : `Send the room code or invitation link to ${requiredSeats.length - assembled} more commander${requiredSeats.length - assembled === 1 ? "" : "s"}. Seats fill East, West ally, then East ally.`}</p>
-
-        <div className="room-code-panel">
-          <span>ROOM CODE</span>
-          <strong>{roomCode || "········"}</strong>
-          <button onClick={onCopy} disabled={!roomCode}>{copied ? "Invitation copied ✓" : "Copy invitation link"}</button>
-        </div>
-
-        <div className="lobby-seats">
-          {requiredSeats.map((commander) => {
-            const seat = snapshot?.seats[commander];
-            const isYou = commander === localCommander;
-            const isAlly = !isYou && localTeam === teamForCommander(commander);
-            const factionInfo = seat?.faction ? FACTIONS[seat.faction] : null;
-            return (
-              <article key={commander} className={`${seat?.claimed ? "is-claimed" : ""}${isYou ? " is-you" : ""}${isAlly ? " is-ally" : ""}`}>
-                <i style={factionInfo ? { background: factionInfo.color } : undefined}>{factionInfo?.crest ?? "?"}</i>
-                <div><small>{isYou ? "YOUR SEAT" : isAlly ? "ALLY SEAT" : "RIVAL SEAT"} · {commanderLabel(commander).toUpperCase()}</small><b>{factionInfo?.name ?? "Awaiting commander"}</b><span>{seat?.connected ? seat.ready ? "Ready for battle" : "Connected · choosing readiness" : seat?.claimed ? "Reconnecting…" : "Invitation available"}</span></div>
-              </article>
-            );
-          })}
-        </div>
-
-        <div className={`connection-state connection-state--${connection}`}><i />{connection === "connected" ? "Live room connected" : connection === "reconnecting" ? "Restoring your seat…" : "Opening live room…"}</div>
-        <div className="lobby-actions">
-          <button className="primary-button" disabled={!canReady} onClick={() => onReady(!localSeat?.ready)}>{localSeat?.ready ? "Cancel readiness" : allAssembled ? "Ready for battle" : "Waiting for commanders"} <span>→</span></button>
-          <button className="text-button" onClick={onLeave}>Leave room</button>
-        </div>
-        <small className="lobby-footnote">Your seat reconnects automatically after a brief network interruption. A live match allows 30 seconds to return.</small>
-      </section>
-    </div>
-  );
 }
 
 function StructureCard({ kind, game, localCommander, selected, hotkey, onSelect }: { kind: BuildingKind; game: GameState; localCommander: CommanderId; selected: boolean; hotkey: number; onSelect: () => void }) {
@@ -466,8 +298,9 @@ export default function Home() {
     leaveRoom: leaveOnlineRoom,
   } = useMultiplayer();
   const [screen, setScreen] = useState<Screen>("title");
-  const [faction, setFaction] = useState<FactionId>("daybreak");
-  const [matchMode, setMatchMode] = useState<OnlineMatchMode>("2v2");
+  const [startStep, setStartStep] = useState<StartStep>("mode");
+  const [startMode, setStartMode] = useState<StartMode | null>(null);
+  const [faction, setFaction] = useState<FactionId | null>(null);
   const [soloGame, setGame] = useState<GameState>(() => createInitialState("daybreak"));
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState<CommandTab>("troops");
@@ -498,7 +331,11 @@ export default function Home() {
   useEffect(() => {
     const invitation = normalizeRoomCode(new URL(window.location.href).searchParams.get("room") ?? "");
     if (!invitation) return;
-    const timeout = window.setTimeout(() => setJoinCode(invitation), 0);
+    const timeout = window.setTimeout(() => {
+      setJoinCode(invitation);
+      setStartMode("join");
+      setStartStep("faction");
+    }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
 
@@ -563,6 +400,7 @@ export default function Home() {
   const selectedDescription = selected ? BUILDING_SPECS[selected].description : inspected ? `${BUILDING_SPECS[inspected.kind].name} selected for upgrades and production control.` : null;
 
   const beginMatch = () => {
+    if (!faction) return;
     if (online) leaveOnlineRoom();
     setGame(createInitialState(faction));
     setSelected(null);
@@ -590,23 +428,38 @@ export default function Home() {
   const goToTitle = () => {
     if (online) leaveOnlineRoom();
     setOverlay(null);
+    setStartStep("mode");
     setScreen("title");
+  };
+
+  const startSelectedGame = () => {
+    if (!startMode || !faction) return;
+    setInviteCopied(false);
+    if (startMode === "solo") {
+      beginMatch();
+      return;
+    }
+    if (startMode === "join") {
+      void joinOnlineRoom(joinCode, faction);
+      return;
+    }
+    void createOnlineRoom(faction, startMode);
   };
 
   if (!showingGame) {
     return <>
       <TitleScreen
+        step={startStep}
+        mode={startMode}
         faction={faction}
-        matchMode={matchMode}
         joinCode={joinCode}
         onlineBusy={onlineBusy}
         onlineNotice={onlineNotice}
+        onStep={setStartStep}
+        onMode={setStartMode}
         onFaction={setFaction}
-        onMode={setMatchMode}
-        onPlay={beginMatch}
-        onCreateRoom={() => { setInviteCopied(false); void createOnlineRoom(faction, matchMode); }}
         onJoinCode={setJoinCode}
-        onJoinRoom={() => { setInviteCopied(false); void joinOnlineRoom(joinCode, faction); }}
+        onStart={startSelectedGame}
         onRules={() => setOverlay("rules")}
       />
       {overlay === "rules" && <RulesModal onClose={() => setOverlay(null)} />}
@@ -625,7 +478,8 @@ export default function Home() {
           } catch { setInviteCopied(false); }
         }}
         onReady={setOnlineReady}
-        onLeave={leaveOnlineRoom}
+        onLeave={() => { leaveOnlineRoom(); setStartStep("faction"); }}
+        onRules={() => setOverlay("rules")}
       />}
     </>;
   }

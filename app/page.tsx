@@ -57,7 +57,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
         <p className="rules-lead">Raise Foundries on the left construction yard. Their cohorts march and fight on their own; your placement, production mix, and timing decide the siege.</p>
 
         <div className="rule-steps">
-          <article><i>01</i><div><b>Place in true 2D</b><span>Choose a Foundry, then click any valid X/Y square. You cannot overlap buildings or seal every route to the gate.</span></div></article>
+          <article><i>01</i><div><b>Place in true 2D</b><span>Pan the double-width map with the camera bar, wheel, swipe, or A/D. Choose a Foundry, then click any valid X/Y square in your far-left yard.</span></div></article>
           <article><i>02</i><div><b>Read the counter ring</b><span>Hammer breaks Plate. Arrow cuts Cloth. Arc pierces Ward. Nightveil watches your mix and adapts.</span></div></article>
           <article><i>03</i><div><b>Invest between clashes</b><span>Both sides receive a Yield every seven seconds. Production adds a little income; a Tallyhouse adds a lot but raises no troops.</span></div></article>
           <article><i>04</i><div><b>Use one Reprieve</b><span>At 0:48, your emergency seal unlocks. It erases invaders on your half and wounds the rest—once per match.</span></div></article>
@@ -96,7 +96,7 @@ function TitleScreen({ onPlay, onRules }: { onPlay: () => void; onRules: () => v
           <button className="primary-button primary-button--hero" onClick={onPlay}>Begin solo skirmish <span>→</span></button>
           <button className="text-button" onClick={onRules}>How to play <span>↗</span></button>
         </div>
-        <div className="hero-facts"><span>One player vs adaptive rival</span><span>Two to five minutes</span><span>No account needed</span></div>
+        <div className="hero-facts"><span>Double-width scrolling battlefield</span><span>One player vs adaptive rival</span><span>Two to five minutes</span></div>
       </section>
 
       <aside className="title-dossier">
@@ -170,7 +170,7 @@ function TutorialCard({ game, selected, onDismiss }: { game: GameState; selected
       <button onClick={onDismiss} aria-label="Dismiss tutorial">×</button>
       {!hasBuilding && !selected && <><b>Choose what to raise</b><p>Select one of the four cards below. The counter note tells you what its cohort defeats.</p></>}
       {!hasBuilding && selected && <><b>Choose its X/Y position</b><p>Click a gold square in your yard. The dotted line previews the cohort’s route to the gate.</p></>}
-      {hasBuilding && <><b>The march is automatic</b><p>Your first cohort deploys shortly. Spend each seven-second Yield, watch the rival’s army, and counter it.</p></>}
+      {hasBuilding && <><b>The march is automatic</b><p>Your first cohort deploys shortly. Pan right to follow it, spend each seven-second Yield, and counter the rival’s army.</p></>}
     </aside>
   );
 }
@@ -188,7 +188,7 @@ function CommandDeck({ game, selected, onSelect, onReprieve }: {
       <div className="ledger-summary">
         <span className="eyebrow">CONSTRUCTION LEDGER</span>
         <strong>{selected ? `Placing ${BUILDING_SPECS[selected].name}` : "Choose a Foundry"}</strong>
-        <small>{selected ? `${BUILDING_SPECS[selected].width}×${BUILDING_SPECS[selected].height} cells · Esc cancels` : "Keys 1–4 select · click the left yard to place"}</small>
+        <small>{selected ? `${BUILDING_SPECS[selected].width}×${BUILDING_SPECS[selected].height} cells · Esc cancels` : "Keys 1–4 select · A/D pans · click the left yard to place"}</small>
       </div>
       <div className="foundry-list">
         {BUILDING_KINDS.map((kind) => <FoundryCard key={kind} kind={kind} game={game} selected={selected === kind} onSelect={() => onSelect(kind)} />)}

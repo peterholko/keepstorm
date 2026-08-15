@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   BUILDING_SPECS,
+  GRID_COLUMNS,
+  KEEP_POSITIONS,
   REPRIEVE_READY_AT,
   UNIT_SPECS,
+  WORLD_WIDTH,
   castReprieve,
   createInitialState,
   damageMultiplier,
@@ -32,19 +35,19 @@ test("Hammer, Arrow, and Arc form a complete readable counter cycle", () => {
 
 test("placement respects the X/Y yard, footprints, and existing Foundries", () => {
   const initial = createInitialState();
-  assert.equal(validatePlacement(initial, "player", "ramworks", 4, 3).valid, true);
-  assert.equal(validatePlacement(initial, "player", "ramworks", 3, 3).valid, false);
-  assert.equal(validatePlacement(initial, "player", "ramworks", 14, 3).valid, false);
+  assert.equal(validatePlacement(initial, "player", "ramworks", 5, 3).valid, true);
+  assert.equal(validatePlacement(initial, "player", "ramworks", 4, 3).valid, false);
+  assert.equal(validatePlacement(initial, "player", "ramworks", 15, 3).valid, false);
 
-  const placed = placeBuilding(initial, "player", "ramworks", 4, 3);
+  const placed = placeBuilding(initial, "player", "ramworks", 5, 3);
   assert.equal(placed.buildings.length, 1);
   assert.equal(placed.coins.player, initial.coins.player - BUILDING_SPECS.ramworks.cost);
-  assert.match(validatePlacement(placed, "player", "quillnest", 5, 4).reason, /occupies/i);
+  assert.match(validatePlacement(placed, "player", "quillnest", 6, 4).reason, /occupies/i);
 });
 
 test("a placement cannot block another Foundry's cohort exit", () => {
-  const state = placeBuilding(createInitialState(), "player", "ramworks", 4, 10);
-  const blocked = validatePlacement(state, "player", "tallyhouse", 7, 10);
+  const state = placeBuilding(createInitialState(), "player", "ramworks", 5, 10);
+  const blocked = validatePlacement(state, "player", "tallyhouse", 8, 10);
   assert.equal(blocked.valid, false);
   assert.match(blocked.reason, /exit would be blocked/i);
 });
@@ -64,7 +67,7 @@ test("a Foundry automatically deploys a cohort that moves in both axes", () => {
 });
 
 test("a Tallyhouse increases each seven-second Yield without spawning a cohort", () => {
-  let state = placeBuilding(createInitialState(), "player", "tallyhouse", 4, 4);
+  let state = placeBuilding(createInitialState(), "player", "tallyhouse", 5, 4);
   assert.equal(yieldFor(state, "player"), 68);
   const afterPurchase = state.coins.player;
   state = advance(state, 7.1);
@@ -73,7 +76,7 @@ test("a Tallyhouse increases each seven-second Yield without spawning a cohort",
 });
 
 test("Nightveil reads the player's dominant cohort and opens with its counter", () => {
-  let state = placeBuilding(createInitialState(), "player", "ramworks", 4, 4);
+  let state = placeBuilding(createInitialState(), "player", "ramworks", 5, 4);
   state = advance(state, 4);
   assert.ok(state.buildings.some((building) => building.team === "enemy" && building.kind === "beaconarium"));
 });
@@ -94,7 +97,7 @@ test("Reprieve clears the caster half, wounds the far half, and is spent once", 
     path: [],
     pathIndex: 0,
   });
-  initial.units = [unit(1, 300), unit(2, 920)];
+  initial.units = [unit(1, 300), unit(2, 1920)];
   assert.equal(reprieveReady(initial, "player"), true);
 
   const after = castReprieve(initial, "player");
@@ -109,8 +112,8 @@ test("a developed skirmish always closes its ledger by the five-minute limit", (
   let state = createInitialState();
   const buildOrder: BuildingKind[] = ["ramworks", "quillnest", "beaconarium", "tallyhouse"];
   const positions = [
-    [4, 4], [8, 4], [12, 4], [4, 9], [8, 9], [12, 9],
-    [4, 14], [8, 14], [12, 14], [4, 19], [8, 19], [12, 19],
+    [5, 4], [9, 4], [13, 4], [5, 9], [9, 9], [13, 9],
+    [5, 14], [9, 14], [13, 14], [5, 19], [9, 19], [13, 19],
   ] as const;
   let nextBuild = 0;
   let position = 0;
@@ -130,4 +133,17 @@ test("a developed skirmish always closes its ledger by the five-minute limit", (
 
   assert.notEqual(state.status, "playing");
   assert.ok(state.elapsed <= 300.2);
+});
+
+test("the Alpha battlefield is a double-width, one-hundred-column world", () => {
+  assert.equal(WORLD_WIDTH, 3200);
+  assert.equal(GRID_COLUMNS, 100);
+  assert.ok(KEEP_POSITIONS.enemy.x - KEEP_POSITIONS.player.x > 2800);
+
+  let state = placeBuilding(createInitialState(), "player", "ramworks", 13, 4);
+  state = advance(state, 2.5);
+  const cohort = state.units.find((unit) => unit.team === "player");
+  assert.ok(cohort);
+  assert.equal(cohort.path.at(-1)?.x, KEEP_POSITIONS.enemy.x);
+  assert.ok(cohort.path.some((point) => point.x === WORLD_WIDTH / 2));
 });

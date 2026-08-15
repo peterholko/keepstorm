@@ -135,7 +135,7 @@ function drawKeep(
   atlas: HTMLCanvasElement,
 ): void {
   const base = KEEP_POSITIONS[team];
-  const x = team === "player" ? 94 : WORLD_WIDTH - 94;
+  const x = base.x;
   const width = 220;
   const height = 270;
   context.save();
@@ -253,19 +253,37 @@ function drawRoute(context: CanvasRenderingContext2D, path: GridPoint[] | undefi
 
 export default function GameCanvas({ state, selected, onPlace, onCancelSelection, onHoverMessage }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [art, setArt] = useState<LoadedArt | null>(null);
   const [hover, setHover] = useState<HoverCell | null>(null);
+  const [scrollRatio, setScrollRatio] = useState(0);
 
   useEffect(() => {
     let active = true;
     Promise.all([
-      loadImage("/game/battlefield.jpg"),
+      loadImage("/game/battlefield-panorama.jpg"),
       loadProcessedAtlas("/game/daybreak-atlas.png"),
       loadProcessedAtlas("/game/nightveil-atlas.png"),
     ]).then(([map, player, enemy]) => {
       if (active) setArt({ map, player, enemy });
     }).catch(() => undefined);
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (selected) scrollRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+  }, [selected]);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      viewport.scrollLeft += event.deltaY;
+    };
+    viewport.addEventListener("wheel", handleWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", handleWheel);
   }, []);
 
   const hoverValidation = useMemo(() => {
@@ -332,7 +350,7 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     drawEffects(context, state);
   }, [art, hover, hoverValidation, selected, state]);
 
-  const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement>): HoverCell => {
+  const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return {
       x: Math.max(0, Math.min(GRID_COLUMNS - 1, Math.floor((event.clientX - bounds.left) / bounds.width * WORLD_WIDTH / CELL_SIZE))),
@@ -354,49 +372,100 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     if (validation.valid) onPlace(selected, hover.x, hover.y);
   };
 
+  const updateScrollRatio = () => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const maximum = viewport.scrollWidth - viewport.clientWidth;
+    setScrollRatio(maximum > 0 ? viewport.scrollLeft / maximum : 0);
+  };
+
+  const panCamera = (direction: -1 | 1) => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({ left: viewport.clientWidth * 0.72 * direction, behavior: "smooth" });
+  };
+
+  const moveCameraTo = (ratio: number, behavior: ScrollBehavior = "smooth") => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ left: (viewport.scrollWidth - viewport.clientWidth) * ratio, behavior });
+  };
+
+  const cameraLabel = scrollRatio < 0.18 ? "DAYBREAK YARD" : scrollRatio > 0.82 ? "NIGHTVEIL YARD" : "CONTESTED ROAD";
+
   return (
     <div className="battlefield-frame">
       {!art && <div className="battlefield-loading"><span />Preparing the Twin Yards…</div>}
-      <canvas
-        ref={canvasRef}
-        width={WORLD_WIDTH}
-        height={WORLD_HEIGHT}
-        className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
-        aria-label="The Twin Yards battlefield. Choose a Foundry below, then click or tap a square in the illuminated left construction yard."
-        tabIndex={0}
-        onPointerMove={(event) => updateHover(cellFromPointer(event))}
-        onPointerLeave={() => updateHover(null)}
-        onPointerDown={(event) => {
-          if (event.button === 2) { onCancelSelection(); return; }
-          updateHover(cellFromPointer(event));
-          if (selected) {
+      <div
+        ref={scrollRef}
+        className="battlefield-scroll"
+        onScroll={updateScrollRatio}
+      >
+        <canvas
+          ref={canvasRef}
+          width={WORLD_WIDTH}
+          height={WORLD_HEIGHT}
+          className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
+          aria-label="The double-width Twin Yards battlefield. Scroll horizontally with the camera controls, mouse wheel, trackpad, touch, or A and D keys. Choose a Foundry below, then place it in the illuminated Daybreak yard at the far left."
+          tabIndex={0}
+          onPointerMove={(event) => updateHover(cellFromPointer(event))}
+          onPointerLeave={() => updateHover(null)}
+          onPointerDown={(event) => {
+            if (event.button === 2) onCancelSelection();
+          }}
+          onClick={(event) => {
             const cell = cellFromPointer(event);
+            updateHover(cell);
+            if (!selected) return;
             const validation = validatePlacement(state, "player", selected, cell.x, cell.y);
             onHoverMessage(validation.reason);
             if (validation.valid) onPlace(selected, cell.x, cell.y);
-          }
-        }}
-        onContextMenu={(event) => event.preventDefault()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") { onCancelSelection(); return; }
-          if (event.key === "Enter") { commitPlacement(); return; }
-          const movement: Record<string, GridPoint> = {
-            ArrowLeft: { x: -1, y: 0 },
-            ArrowRight: { x: 1, y: 0 },
-            ArrowUp: { x: 0, y: -1 },
-            ArrowDown: { x: 0, y: 1 },
-          };
-          const delta = movement[event.key];
-          if (!delta) return;
-          event.preventDefault();
-          const origin = hover ?? { x: 8, y: 12, source: "keyboard" as const };
-          updateHover({
-            x: Math.max(0, Math.min(GRID_COLUMNS - 1, origin.x + delta.x)),
-            y: Math.max(0, Math.min(GRID_ROWS - 1, origin.y + delta.y)),
-            source: "keyboard",
-          });
-        }}
-      />
+          }}
+          onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={(event) => {
+            const key = event.key.toLowerCase();
+            if (key === "a") { event.preventDefault(); panCamera(-1); return; }
+            if (key === "d") { event.preventDefault(); panCamera(1); return; }
+            if (event.key === "Home") { event.preventDefault(); moveCameraTo(0); return; }
+            if (event.key === "End") { event.preventDefault(); moveCameraTo(1); return; }
+            if (event.key === "Escape") { onCancelSelection(); return; }
+            if (event.key === "Enter") { commitPlacement(); return; }
+            if (!selected && event.key === "ArrowLeft") { event.preventDefault(); panCamera(-1); return; }
+            if (!selected && event.key === "ArrowRight") { event.preventDefault(); panCamera(1); return; }
+            const movement: Record<string, GridPoint> = {
+              ArrowLeft: { x: -1, y: 0 },
+              ArrowRight: { x: 1, y: 0 },
+              ArrowUp: { x: 0, y: -1 },
+              ArrowDown: { x: 0, y: 1 },
+            };
+            const delta = movement[event.key];
+            if (!delta) return;
+            event.preventDefault();
+            const origin = hover ?? { x: 9, y: 12, source: "keyboard" as const };
+            updateHover({
+              x: Math.max(0, Math.min(GRID_COLUMNS - 1, origin.x + delta.x)),
+              y: Math.max(0, Math.min(GRID_ROWS - 1, origin.y + delta.y)),
+              source: "keyboard",
+            });
+          }}
+        />
+      </div>
+      <div className="camera-controls" aria-label="Battlefield camera controls">
+        <button onClick={() => panCamera(-1)} aria-label="Scroll battlefield left">‹</button>
+        <label>
+          <span>{cameraLabel}</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={Math.round(scrollRatio * 100)}
+            onChange={(event) => moveCameraTo(Number(event.target.value) / 100, "auto")}
+            aria-label="Battlefield horizontal position"
+          />
+          <small>A / D · WHEEL · SWIPE</small>
+        </label>
+        <button onClick={() => panCamera(1)} aria-label="Scroll battlefield right">›</button>
+      </div>
     </div>
   );
 }

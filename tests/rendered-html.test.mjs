@@ -24,6 +24,7 @@ test("renders the Musterhold alpha title experience", async () => {
   assert.match(html, /Place wisely\./);
   assert.match(html, /Begin solo skirmish/);
   assert.match(html, /PLAYTEST ALPHA/);
+  assert.match(html, /Double-width scrolling battlefield/);
   assert.match(html, /og\.png/);
   assert.doesNotMatch(html, /KEEPSTORM|Heartkeep|Stormbreak/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview|react-loading-skeleton/);

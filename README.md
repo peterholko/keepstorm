@@ -2,7 +2,7 @@
 
 **Place wisely. March relentlessly.**
 
-Musterhold is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, read a three-way combat counter, and break the rival Anchorhold before the five-minute ledger closes.
+Musterhold is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, follow cohorts across a double-width scrolling battlefield, and break the rival Anchorhold before the five-minute ledger closes.
 
 This repository contains the closed Alpha: one complete solo skirmish against an adaptive Nightveil opponent, with finished original battlefield, faction, building, unit, icon, and title artwork.
 
@@ -18,6 +18,8 @@ Open `http://localhost:3000` and choose **Begin solo skirmish**.
 ## Controls
 
 - Click or tap a Foundry card, then place it anywhere valid in the left construction yard.
+- Mouse wheel, horizontal trackpad, swipe, camera bar, or `A` / `D` — scroll the battlefield left and right
+- `Home` / `End` — jump to the Daybreak or Nightveil end of the map
 - `1` — Ramworks
 - `2` — Quillnest
 - `3` — Beaconarium
@@ -35,6 +37,7 @@ Open `http://localhost:3000` and choose **Begin solo skirmish**.
 - Wispwrights deal **Arc** damage and wear **Cloth** armor.
 - Hammer breaks Plate, Arrow cuts Cloth, and Arc pierces Ward.
 - A Yield arrives every seven seconds. Production Foundries add a small bonus; Tallyhouses add 24 Marks but spawn no cohort.
+- The battlefield spans 3200 × 896 world units and 100 × 28 cells, with a horizontally scrolling camera.
 - Buildings occupy real cells, are targetable, and cannot overlap or block a production exit.
 - Cohorts navigate from their own Foundry to the yard gate, then follow the contested road automatically.
 - The Nightveil rival observes the player’s dominant Foundry and constructs its counter.

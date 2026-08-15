@@ -1,7 +1,7 @@
-export const WORLD_WIDTH = 1600;
+export const WORLD_WIDTH = 3200;
 export const WORLD_HEIGHT = 896;
 export const CELL_SIZE = 32;
-export const GRID_COLUMNS = 50;
+export const GRID_COLUMNS = 100;
 export const GRID_ROWS = 28;
 export const KEEP_MAX_HP = 1800;
 export const MATCH_LIMIT = 300;
@@ -213,31 +213,39 @@ export interface PlacementValidation {
 }
 
 export const BUILD_ZONES: Record<Team, { minX: number; maxX: number; minY: number; maxY: number }> = {
-  player: { minX: 4, maxX: 15, minY: 3, maxY: 24 },
-  enemy: { minX: 34, maxX: 45, minY: 3, maxY: 24 },
+  player: { minX: 5, maxX: 16, minY: 3, maxY: 24 },
+  enemy: { minX: 83, maxX: 94, minY: 3, maxY: 24 },
 };
 
 const NAV_ZONES: Record<Team, { minX: number; maxX: number; minY: number; maxY: number }> = {
-  player: { minX: 2, maxX: 16, minY: 2, maxY: 25 },
-  enemy: { minX: 33, maxX: 47, minY: 2, maxY: 25 },
+  player: { minX: 3, maxX: 18, minY: 2, maxY: 25 },
+  enemy: { minX: 81, maxX: 96, minY: 2, maxY: 25 },
 };
 
 export const GATE_CELLS: Record<Team, GridPoint> = {
-  player: { x: 16, y: 14 },
-  enemy: { x: 33, y: 14 },
+  player: { x: 18, y: 14 },
+  enemy: { x: 81, y: 14 },
 };
 
 export const KEEP_POSITIONS: Record<Team, Point> = {
-  player: { x: 72, y: 448 },
-  enemy: { x: 1528, y: 448 },
+  player: { x: 120, y: 448 },
+  enemy: { x: 3080, y: 448 },
 };
 
 const LANE_PATH: Point[] = [
-  { x: 528, y: 464 },
-  { x: 650, y: 496 },
-  { x: 790, y: 480 },
-  { x: 925, y: 416 },
-  { x: 1072, y: 448 },
+  { x: 592, y: 464 },
+  { x: 720, y: 486 },
+  { x: 900, y: 438 },
+  { x: 1080, y: 408 },
+  { x: 1260, y: 452 },
+  { x: 1430, y: 482 },
+  { x: 1600, y: 448 },
+  { x: 1770, y: 478 },
+  { x: 1940, y: 440 },
+  { x: 2120, y: 402 },
+  { x: 2300, y: 438 },
+  { x: 2480, y: 486 },
+  { x: 2608, y: 464 },
 ];
 
 const ARMOR_COUNTER: Record<DamageType, ArmorType> = {
@@ -510,7 +518,7 @@ function aiDesiredBuilding(state: GameState): BuildingKind {
 }
 
 const AI_Y = [4, 9, 15, 20, 3, 12, 18, 7, 22];
-const AI_X = [42, 38, 34, 43, 39, 35, 41, 37, 34];
+const AI_X = [91, 87, 83, 92, 88, 84, 90, 86, 83];
 
 function runAi(state: GameState): GameState {
   if (!state.started || buildingCount(state, "enemy") >= BUILDING_CAP) return state;
@@ -601,7 +609,9 @@ function simulateCombat(state: GameState, dt: number): GameState {
       continue;
     }
 
-    const inEnemyYard = unit.team === "player" ? unit.x > 1060 : unit.x < 540;
+    const inEnemyYard = unit.team === "player"
+      ? unit.x > cellCenter(GATE_CELLS.enemy).x - 70
+      : unit.x < cellCenter(GATE_CELLS.player).x + 70;
     const enemyBuildings = buildings.filter((building) => building.team !== unit.team && building.hp > 0);
     const nearestBuilding = inEnemyYard
       ? enemyBuildings.reduce<Building | null>((nearest, candidate) => !nearest || distance(unit, buildingCenter(candidate)) < distance(unit, buildingCenter(nearest)) ? candidate : nearest, null)
@@ -771,11 +781,11 @@ export function stepGame(input: GameState, dt: number): GameState {
   if (reprieveReady(state, "enemy") && playerRaiders >= 5) state = castReprieve(state, "enemy");
 
   if (state.elapsed >= 210) {
-    const playerFront = state.units.filter((unit) => unit.team === "player").reduce((front, unit) => Math.max(front, unit.x), 528);
-    const enemyFront = state.units.filter((unit) => unit.team === "enemy").reduce((front, unit) => Math.min(front, unit.x), 1072);
+    const playerFront = state.units.filter((unit) => unit.team === "player").reduce((front, unit) => Math.max(front, unit.x), cellCenter(GATE_CELLS.player).x);
+    const enemyFront = state.units.filter((unit) => unit.team === "enemy").reduce((front, unit) => Math.min(front, unit.x), cellCenter(GATE_CELLS.enemy).x);
     const line = (playerFront + enemyFront) / 2;
-    if (line > 820) state.keeps.enemy = Math.max(0, state.keeps.enemy - (line - 820) * 0.035 * safeDt);
-    if (line < 780) state.keeps.player = Math.max(0, state.keeps.player - (780 - line) * 0.035 * safeDt);
+    if (line > WORLD_WIDTH / 2 + 20) state.keeps.enemy = Math.max(0, state.keeps.enemy - (line - (WORLD_WIDTH / 2 + 20)) * 0.009 * safeDt);
+    if (line < WORLD_WIDTH / 2 - 20) state.keeps.player = Math.max(0, state.keeps.player - ((WORLD_WIDTH / 2 - 20) - line) * 0.009 * safeDt);
     if (input.elapsed < 210) state = withEvent(state, "Final Yield: the road now presses directly against the weaker Anchorhold.");
   }
 

@@ -28,7 +28,7 @@ The engine clamps each update to 200 milliseconds. The interface requests update
 
 ## Placement and navigation
 
-The battlefield is 1600 × 896 world units divided into 50 × 28 cells. Daybreak owns columns 4–15 and Nightveil owns columns 34–45. Every building declares a width and height in cells.
+The battlefield is 3200 × 896 world units divided into 100 × 28 cells. Daybreak owns columns 5–16 and Nightveil owns columns 83–94. Every building declares a width and height in cells. The Canvas keeps this full native world width while a containing camera viewport scrolls horizontally; pointer coordinates are translated against the complete Canvas, so placement remains accurate at every camera position.
 
 Before accepting a placement, the engine checks:
 
@@ -38,7 +38,7 @@ Before accepting a placement, the engine checks:
 4. No production exit becomes occupied.
 5. Every production building can still reach its team gate through a breadth-first grid search.
 
-Each spawned cohort receives the current route from its individual Foundry to the gate, followed by the shared winding road and opposing Anchorhold. Existing cohorts retain their route so a later construction never invalidates an in-flight command.
+Each spawned cohort receives the current route from its individual Foundry to the gate, followed by the extended shared winding road and opposing Anchorhold. Existing cohorts retain their route so a later construction never invalidates an in-flight command.
 
 ## Combat and economy
 

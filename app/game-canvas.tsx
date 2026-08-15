@@ -178,7 +178,7 @@ function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Uni
 
 function drawKeep(context: CanvasRenderingContext2D, state: GameState, team: Team, atlas: HTMLCanvasElement): void {
   const base = KEEP_POSITIONS[team];
-  const visualY = base.y - 16;
+  const visualY = base.y - 41;
   const width = 220;
   const height = 270;
   const color = teamColor(state, team);

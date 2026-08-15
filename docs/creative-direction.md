@@ -44,7 +44,7 @@ The committed Alpha art is original and was generated specifically for this proj
 
 - `public/game/title-art.jpg` — title-screen battle illustration
 - `public/game/battlefield.jpg` — straight-overhead Twin Yards board
-- `public/game/battlefield-panorama.jpg` — outpainted 3200 × 896 scrolling Twin Yards board
+- `public/game/battlefield-panorama.jpg` — 3200 × 896 scrolling Twin Yards board with two intentional outer river crossings and an uninterrupted central lane
 - `public/game/daybreak-atlas.png` — Anchorhold, four Foundries, and three cohorts
 - `public/game/nightveil-atlas.png` — opposing equivalents with independent faction treatment
 - `public/game/icons-atlas.png` — counter, Reprieve, armor, and currency emblems

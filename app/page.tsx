@@ -6,7 +6,7 @@ import BrandMark from "./brand-mark";
 import GameCanvas from "./game-canvas";
 import LobbyModal from "./lobby-modal";
 import RulesModal from "./rules-modal";
-import TitleScreen, { type StartMode, type StartStep } from "./title-screen";
+import TitleScreen, { isStartModeAvailable, type StartMode, type StartStep } from "./title-screen";
 import { useMultiplayer } from "./use-multiplayer";
 import { normalizeRoomCode, seatsForMode, type RoomSnapshot } from "@/lib/multiplayer/protocol";
 import {
@@ -433,7 +433,7 @@ export default function Home() {
   };
 
   const startSelectedGame = () => {
-    if (!startMode || !faction) return;
+    if (!startMode || !faction || !isStartModeAvailable(startMode)) return;
     setInviteCopied(false);
     if (startMode === "solo") {
       beginMatch();

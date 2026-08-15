@@ -31,6 +31,9 @@ test("renders the first step of the Keepstorm start flow", async () => {
   assert.match(html, /Play against the AI/);
   assert.match(html, /Online with 2 players/);
   assert.match(html, /Online with 2 teams of 2/);
+  assert.match(html, /<button(?=[^>]*data-mode="1v1")(?=[^>]*disabled="")[^>]*>/);
+  assert.match(html, /<button(?=[^>]*data-mode="2v2")(?=[^>]*disabled="")[^>]*>/);
+  assert.match(html, /Testing soon/);
   assert.match(html, /Join a game/);
   assert.match(html, /Enter a code from a friend/);
   assert.match(html, /How to play/);

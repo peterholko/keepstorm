@@ -56,10 +56,12 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .start-panel-heading h1 { margin: 0 0 6px; font: 700 clamp(32px, 4vw, 43px)/1 var(--serif); letter-spacing: -.025em; }
 .start-panel-heading p { margin: 0; color: rgba(255, 242, 210, .62); font-size: 14px; line-height: 1.45; }
 .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
-.mode-card { min-width: 0; display: grid; gap: 6px; padding: 18px; background: rgba(255, 242, 210, .035); border: 1px solid var(--line); color: var(--cream); text-align: left; cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease; }
-.mode-card:hover, .mode-card.is-selected { transform: translateY(-2px); background: rgba(240, 189, 72, .12); border-color: var(--gold); }
+.mode-card { position: relative; min-width: 0; display: grid; gap: 6px; padding: 18px; background: rgba(255, 242, 210, .035); border: 1px solid var(--line); color: var(--cream); text-align: left; cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease; }
+.mode-card:hover:not(:disabled), .mode-card.is-selected:not(:disabled) { transform: translateY(-2px); background: rgba(240, 189, 72, .12); border-color: var(--gold); }
+.mode-card:disabled { background: rgba(11, 15, 11, .38); border-color: rgba(255, 242, 210, .1); }
 .mode-card b { font: 700 20px var(--serif); }
 .mode-card small { color: rgba(255, 242, 210, .62); font-size: 13px; }
+.mode-card-status { position: absolute; right: 12px; top: 10px; color: var(--gold); font-size: 9px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
 .join-code-field { display: grid; gap: 7px; margin-top: 14px; }
 .join-code-field span { font-size: 13px; font-weight: 700; }
 .join-code-field input { width: min(310px, 100%); height: 46px; padding: 0 13px; background: rgba(255, 242, 210, .07); border: 1px solid rgba(255, 225, 123, .38); color: var(--gold-bright); font: 800 15px var(--sans); letter-spacing: .12em; text-transform: uppercase; }

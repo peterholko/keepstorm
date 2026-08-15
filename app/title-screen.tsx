@@ -15,6 +15,10 @@ const MODE_OPTIONS: { id: StartMode; name: string; detail: string }[] = [
   { id: "join", name: "Join a game", detail: "Enter a code from a friend" },
 ];
 
+export function isStartModeAvailable(mode: StartMode): boolean {
+  return mode !== "1v1" && mode !== "2v2";
+}
+
 const FACTION_COPY: Record<FactionId, { summary: string; passive: string }> = {
   daybreak: {
     summary: "Balanced defense, ranged fire, and air.",
@@ -71,7 +75,7 @@ export default function TitleScreen({
   onRules: () => void;
 }) {
   const online = mode !== null && mode !== "solo";
-  const canContinue = Boolean(mode) && (mode !== "join" || joinCode.length === ROOM_CODE_LENGTH);
+  const canContinue = Boolean(mode && isStartModeAvailable(mode)) && (mode !== "join" || joinCode.length === ROOM_CODE_LENGTH);
 
   return (
     <main className="title-screen">
@@ -102,11 +106,14 @@ export default function TitleScreen({
                   <button
                     key={option.id}
                     className={`mode-card${mode === option.id ? " is-selected" : ""}`}
+                    data-mode={option.id}
+                    disabled={!isStartModeAvailable(option.id)}
                     onClick={() => onMode(option.id)}
                     aria-pressed={mode === option.id}
                   >
                     <b>{option.name}</b>
                     <small>{option.detail}</small>
+                    {!isStartModeAvailable(option.id) && <span className="mode-card-status">Testing soon</span>}
                   </button>
                 ))}
               </div>

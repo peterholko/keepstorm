@@ -178,6 +178,7 @@ function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Uni
 
 function drawKeep(context: CanvasRenderingContext2D, state: GameState, team: Team, atlas: HTMLCanvasElement): void {
   const base = KEEP_POSITIONS[team];
+  const visualY = base.y - 16;
   const width = 220;
   const height = 270;
   const color = teamColor(state, team);
@@ -185,20 +186,20 @@ function drawKeep(context: CanvasRenderingContext2D, state: GameState, team: Tea
   context.shadowColor = "rgba(6, 9, 7, .62)";
   context.shadowBlur = 20;
   context.shadowOffsetY = 10;
-  drawAtlasCell(context, atlas, 0, base.x, base.y - 28, width, height, team === "enemy");
+  drawAtlasCell(context, atlas, 0, base.x, visualY - 28, width, height, team === "enemy");
   context.restore();
-  drawHealthBar(context, base.x, base.y - 180, 122, state.keeps[team] / KEEP_MAX_HP, color);
+  drawHealthBar(context, base.x, visualY - 180, 122, state.keeps[team] / KEEP_MAX_HP, color);
 
   const armored = commandersForTeam(state, team).some((commander) => state.keepArmorUntil[commander] > state.elapsed);
   context.textAlign = "center";
   context.fillStyle = "rgba(12, 16, 12, .84)";
-  context.fillRect(base.x - 74, base.y + 112, 148, 34);
+  context.fillRect(base.x - 74, visualY + 112, 148, 34);
   context.fillStyle = color;
   context.font = "800 11px Trebuchet MS, sans-serif";
-  context.fillText(teamDisplayName(state, team).toUpperCase(), base.x, base.y + 126);
+  context.fillText(teamDisplayName(state, team).toUpperCase(), base.x, visualY + 126);
   context.fillStyle = "#fff3d5";
   context.font = "700 11px Trebuchet MS, sans-serif";
-  context.fillText(`${Math.ceil(state.keeps[team])} HP${armored ? " · ARMORED" : ""}`, base.x, base.y + 140);
+  context.fillText(`${Math.ceil(state.keeps[team])} HP${armored ? " · ARMORED" : ""}`, base.x, visualY + 140);
 }
 
 function drawEffects(context: CanvasRenderingContext2D, state: GameState): void {

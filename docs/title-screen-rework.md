@@ -61,7 +61,7 @@ Unchanged proper names and labels are omitted. Dynamic values are shown in brace
 | Lobby footnote | `Your seat reconnects automatically after a brief network interruption. A live match allows 30 seconds to return.` | `If you disconnect during a match, you have 30 seconds to return.` |
 | Rules close label | `Close field guide` | `Close how to play` |
 | Rules label | `FIELD GUIDE · THE FULL WAR LEDGER` | `HOW TO PLAY` |
-| Rules heading | `Build an army that answers the army coming back.` | `Build units. Break the enemy Anchorhold.` |
+| Rules heading | `Build an army that answers the army coming back.` | `Build units. Break the enemy Keep.` |
 | Rules intro | `Your structures raise cohorts automatically. The strategic game is choosing a faction, shaping the yard, reading armor, timing waves, and deciding when to trade growth for immediate power.` | `Buildings create units automatically. Choose what to build, where to place it, and when to improve it.` |
 | Rule 1 | `Three asymmetric factions` plus faction marketing copy | `Factions` / `Each faction has five unit buildings, one support building, one income building, and one tower.` |
 | Rule 2 | `Three-resource economy` plus resource copy | `Resources` / `Marks buy buildings, upgrades, and items. Construction earns Timber for advanced buildings. Sigils unlock legendary unit upgrades.` |
@@ -70,8 +70,8 @@ Unchanged proper names and labels are omitted. Dynamic values are shown in brace
 | Rule 5 | `Specials, towers, and items` plus faction works/shop copy | `Support, towers, and items` / `Support buildings shield, heal, or disrupt. Towers defend your build area but are weak to Siege damage. Items give permanent bonuses or one-use effects.` |
 | Rule 6 | `Wave synchronization` plus Foundry/cadence copy | `Rally Sync` / `Rally Sync releases units from every active unit building together at the slowest production rate. Pause individual buildings to control their timing.` |
 | Rule 7 | `One Reprieve per round` plus emergency seal copy | `Reprieve` / `After 1:15, you can use Reprieve once per round. It removes enemies on your half and damages enemies farther away.` |
-| Rule 8 | `First to two rounds` plus ledger tie-break copy | `Winning` / `Destroy the enemy Anchorhold to win the round. At the time limit, unused Reprieve, income, base health, and remaining unit strength break ties in that order.` |
-| Rule 9 | `True 2v2 alliances` plus commander/yard copy | `2v2` / `Four players each choose a faction and manage separate resources, build areas, buildings, items, Rally Sync, and Reprieve. Allies share one Anchorhold and one army.` |
+| Rule 8 | `First to two rounds` plus ledger tie-break copy | `Winning` / `Destroy the enemy Keep to win the round. At the time limit, unused Reprieve, income, Keep health, and remaining unit strength break ties in that order.` |
+| Rule 9 | `True 2v2 alliances` plus commander/yard copy | `2v2` / `Four players each choose a faction and manage separate resources, build areas, buildings, items, Rally Sync, and Reprieve. Allies share one Keep and one army.` |
 | Damage guide label | `Damage relationships` | `Damage types` |
 | Hammer note | `crushes Plate` | `strong against Plate` |
 | Arrow note | `cuts Cloth` | `strong against Cloth` |
@@ -80,9 +80,9 @@ Unchanged proper names and labels are omitted. Dynamic values are shown in brace
 | Pure note | `always deals steady damage` | `deals steady damage` |
 | Rules CTA | `Open the war ledger →` | `Back` |
 | Browser title | `Keepstorm — Build the answer. Time the march.` | `Keepstorm` |
-| Meta description | `Choose an asymmetric faction, place and upgrade structures across a scrolling battlefield, synchronize automatic cohorts, and outbuild an adaptive rival in Keepstorm.` | `A browser strategy game where buildings create units automatically and players race to destroy the enemy Anchorhold.` |
+| Meta description | `Choose an asymmetric faction, place and upgrade structures across a scrolling battlefield, synchronize automatic cohorts, and outbuild an adaptive rival in Keepstorm.` | `A browser strategy game where buildings create units automatically and players race to destroy the enemy Keep.` |
 | Social title | `Keepstorm — Build the answer. Time the march.` | `Keepstorm` |
-| Social description | Wordy faction/yard copy | `Build structures that create units automatically, then destroy the enemy Anchorhold.` |
+| Social description | Wordy faction/yard copy | `Build structures that create units automatically, then destroy the enemy Keep.` |
 | Social image alt | `Original automated siege forces clash in Keepstorm` | `Keepstorm browser strategy game` |
 
 ## State machine

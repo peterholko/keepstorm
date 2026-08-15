@@ -143,7 +143,7 @@ export interface ShopItemSpec {
 export const SHOP_ITEMS: Record<ShopItemKind, ShopItemSpec> = {
   rally_horn: { name: "Rally Horn", cost: { marks: 260, timber: 90 }, description: "Permanent: allied cohorts gain 12% movement and attack speed.", permanent: true },
   ember_flask: { name: "Ember Flask", cost: { marks: 165, timber: 45 }, description: "Instant: burns every enemy cohort on your half for heavy damage." },
-  iron_writ: { name: "Iron Writ", cost: { marks: 220, timber: 65 }, description: "Instant: restores 260 Anchorhold health and grants temporary armor." },
+  iron_writ: { name: "Iron Writ", cost: { marks: 220, timber: 65 }, description: "Instant: restores 260 Keep health and grants temporary armor." },
   tempo_bell: { name: "Tempo Bell", cost: { marks: 190, timber: 75 }, description: "Instant: aligns active Foundries for one coordinated deployment." },
   sigil_shard: { name: "Sigil Shard", cost: { marks: 440, timber: 150 }, description: "Adds one Sigil, allowing another legendary Foundry upgrade." },
 };

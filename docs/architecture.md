@@ -38,17 +38,17 @@ Before accepting a placement, the engine checks:
 4. No production exit becomes occupied.
 5. Every production building can still reach its team gate through a breadth-first grid search.
 
-Each spawned cohort receives the current route from its individual Foundry to the gate, followed by the extended shared winding road and opposing Anchorhold. Existing cohorts retain their route so a later construction never invalidates an in-flight command.
+Each spawned cohort receives the current route from its individual Foundry to the gate, followed by the extended shared winding road and opposing Keep. Existing cohorts retain their route so a later construction never invalidates an in-flight command.
 
 ## Combat and economy
 
 - Production timers belong to individual Foundries, so positions and build times create staggered cohorts.
-- Units find nearby enemy units first. Once inside the opposing yard they can attack targetable Foundries, then the Anchorhold.
+- Units find nearby enemy units first. Once inside the opposing yard they can attack targetable Foundries, then the Keep.
 - Hammer, Arrow, and Arc receive a 1.7× bonus into their countered armor and a 0.74× penalty in the reverse matchup.
-- Each Anchorhold fires a periodic defensive shot at the nearest raider.
+- Each Keep fires a periodic defensive shot at the nearest raider.
 - Yield is calculated from living buildings and paid every seven seconds.
 - The rival chooses a counter to the player’s dominant production type and periodically adds a Tallyhouse when its production base is developed.
-- At 3:30, road position begins applying light pressure to the weaker Anchorhold so stalled matches resolve.
+- At 3:30, road position begins applying light pressure to the weaker Keep so stalled matches resolve.
 
 ## When multiplayer is added
 

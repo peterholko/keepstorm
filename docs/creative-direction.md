@@ -7,7 +7,7 @@ Status: original closed-Alpha identity; trademark and storefront clearance are s
 - **Title:** Keepstorm
 - **Tagline:** Place wisely. March relentlessly.
 - **Genre line:** Automated siege strategy
-- **Short pitch:** Shape a construction yard, raise specialized mechanical cohorts, counter an adaptive rival, and break its Anchorhold before the ledger closes.
+- **Short pitch:** Shape a construction yard, raise specialized mechanical cohorts, counter an adaptive rival, and break its Keep before the ledger closes.
 
 ## World
 
@@ -23,7 +23,7 @@ The Alpha match is **The Twin Yards**:
 
 | Foundry | Cohort | Combat identity | Visual identity |
 |---|---|---|---|
-| Anchorhold | Objective | Defends itself and determines victory | Tall charter hall with a celestial crest |
+| Keep | Objective | Defends itself and determines victory | Tall charter hall with a celestial crest |
 | Ramworks | Ramguard | Hammer damage, Ward armor | Timber hammer mill and broad two-handed construct |
 | Quillnest | Quillrunner | Arrow damage, Plate armor | Feathered bolt workshop and fast mechanical ranger |
 | Beaconarium | Wispwright | Arc damage, Cloth armor | Orb observatory and floating energy artisan |
@@ -45,7 +45,7 @@ The committed Alpha art is original and was generated specifically for this proj
 - `public/game/title-art.jpg` — title-screen battle illustration
 - `public/game/battlefield.jpg` — straight-overhead Twin Yards board
 - `public/game/battlefield-panorama.png` — lossless 3200 × 896 mirrored Twin Yards board with centered keeps, aligned split construction fields, and two intentional outer river crossings
-- `public/game/daybreak-atlas.png` — Anchorhold, four Foundries, and three cohorts
+- `public/game/daybreak-atlas.png` — Keep, four Foundries, and three cohorts
 - `public/game/nightveil-atlas.png` — opposing equivalents with independent faction treatment
 - `public/game/icons-atlas.png` — counter, Reprieve, armor, and currency emblems
 - `public/og.png` — finished 1200 × 630 social share card

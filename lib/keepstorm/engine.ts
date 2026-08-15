@@ -1208,8 +1208,8 @@ export function teamDisplayName(state: GameState, team: Team): string {
 }
 
 function resolveRound(state: GameState): GameState {
-  if (state.keeps.enemy <= 0) return finishRound(state, "player", "The eastern Anchorhold has fallen.");
-  if (state.keeps.player <= 0) return finishRound(state, "enemy", "The western Anchorhold has fallen.");
+  if (state.keeps.enemy <= 0) return finishRound(state, "player", "The eastern Keep has fallen.");
+  if (state.keeps.player <= 0) return finishRound(state, "enemy", "The western Keep has fallen.");
   if (state.elapsed < MATCH_LIMIT) return state;
 
   const unusedPlayer = commandersForTeam(state, "player").filter((commander) => !state.reprieveUsed[commander]).length;
@@ -1218,7 +1218,7 @@ function resolveRound(state: GameState): GameState {
   const playerIncome = incomeFor(state, "player");
   const enemyIncome = incomeFor(state, "enemy");
   if (playerIncome !== enemyIncome) return finishRound(state, playerIncome > enemyIncome ? "player" : "enemy", "The ledger closed; stronger recurring income decided the tie.");
-  if (state.keeps.player !== state.keeps.enemy) return finishRound(state, state.keeps.player > state.keeps.enemy ? "player" : "enemy", "The ledger closed; the healthier Anchorhold decided the tie.");
+  if (state.keeps.player !== state.keeps.enemy) return finishRound(state, state.keeps.player > state.keeps.enemy ? "player" : "enemy", "The ledger closed; the healthier Keep decided the tie.");
   const playerArmy = state.units.filter((unit) => unit.team === "player").reduce((total, unit) => total + unit.hp + unit.shield, 0);
   const enemyArmy = state.units.filter((unit) => unit.team === "enemy").reduce((total, unit) => total + unit.hp + unit.shield, 0);
   return finishRound(state, playerArmy >= enemyArmy ? "player" : "enemy", "The ledger closed; remaining field strength broke the final tie.");
@@ -1329,7 +1329,7 @@ export function matchReport(state: GameState, playtestAnswer?: string): string {
     `Total duration: ${Math.floor(state.totalElapsed / 60)}:${String(Math.floor(state.totalElapsed % 60)).padStart(2, "0")}`,
     `Mode: ${state.matchMode}`,
     `Factions: ${factionsFor("player")} / ${factionsFor("enemy")}`,
-    `Anchorholds: ${Math.ceil(state.keeps.player)} / ${Math.ceil(state.keeps.enemy)}`,
+    `Keeps: ${Math.ceil(state.keeps.player)} / ${Math.ceil(state.keeps.enemy)}`,
     `Structures placed: ${statFor(state.stats.buildingsPlaced, "player")} / ${statFor(state.stats.buildingsPlaced, "enemy")}`,
     `Upgrades purchased: ${statFor(state.stats.upgrades, "player")} / ${statFor(state.stats.upgrades, "enemy")}`,
     `Cohorts raised: ${statFor(state.stats.unitsSpawned, "player")} / ${statFor(state.stats.unitsSpawned, "enemy")}`,

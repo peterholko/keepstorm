@@ -6,7 +6,7 @@ export default function RulesModal({ onClose }: { onClose: () => void }) {
       <section className="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-heading">
         <button className="modal-close" onClick={onClose} aria-label="Close how to play">×</button>
         <span className="eyebrow">HOW TO PLAY</span>
-        <h2 id="rules-heading">Build units. Break the enemy Anchorhold.</h2>
+        <h2 id="rules-heading">Build units. Break the enemy Keep.</h2>
         <p className="rules-lead">Buildings create units automatically. Choose what to build, where to place it, and when to improve it.</p>
 
         <div className="rule-steps rule-steps--depth">
@@ -17,8 +17,8 @@ export default function RulesModal({ onClose }: { onClose: () => void }) {
           <article><i>05</i><div><b>Support, towers, and items</b><span>Support buildings shield, heal, or disrupt. Towers defend your build area but are weak to Siege damage. Items give permanent bonuses or one-use effects.</span></div></article>
           <article><i>06</i><div><b>Rally Sync</b><span>Rally Sync releases units from every active unit building together at the slowest production rate. Pause individual buildings to control their timing.</span></div></article>
           <article><i>07</i><div><b>Reprieve</b><span>After 1:15, you can use Reprieve once per round. It removes enemies on your half and damages enemies farther away.</span></div></article>
-          <article><i>08</i><div><b>Winning</b><span>Destroy the enemy Anchorhold to win the round. At the time limit, unused Reprieve, income, base health, and remaining unit strength break ties in that order.</span></div></article>
-          <article><i>09</i><div><b>2v2</b><span>Four players each choose a faction and manage separate resources, build areas, buildings, items, Rally Sync, and Reprieve. Allies share one Anchorhold and one army.</span></div></article>
+          <article><i>08</i><div><b>Winning</b><span>Destroy the enemy Keep to win the round. At the time limit, unused Reprieve, income, Keep health, and remaining unit strength break ties in that order.</span></div></article>
+          <article><i>09</i><div><b>2v2</b><span>Four players each choose a faction and manage separate resources, build areas, buildings, items, Rally Sync, and Reprieve. Allies share one Keep and one army.</span></div></article>
         </div>
 
         <div className="counter-ledger" aria-label="Damage types">

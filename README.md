@@ -2,7 +2,7 @@
 
 **Place wisely. March relentlessly.**
 
-Keepstorm is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, follow cohorts across a double-width scrolling battlefield, and break the rival Anchorhold before the five-minute ledger closes.
+Keepstorm is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, follow cohorts across a double-width scrolling battlefield, and break the rival Keep before the five-minute ledger closes.
 
 This repository contains the closed Alpha: a complete solo skirmish against an adaptive Nightveil opponent plus authoritative human 1v1 and 2v2 rooms, with finished original battlefield, faction, building, unit, icon, and title artwork.
 
@@ -42,7 +42,7 @@ Open `http://localhost:3000` and choose **Begin solo skirmish**.
 - Cohorts navigate from their own Foundry to the yard gate, then follow the contested road automatically.
 - The Nightveil rival observes the player’s dominant Foundry and constructs its counter.
 - Reprieve unlocks after 48 seconds and can be used once. It clears invaders from the player half and wounds the rest.
-- Destroy the rival Anchorhold. If both survive five minutes, remaining keep health and Foundries settle the result.
+- Destroy the rival Keep. If both survive five minutes, remaining Keep health and Foundries settle the result.
 
 ## Verification
 

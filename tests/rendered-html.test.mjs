@@ -26,7 +26,7 @@ test("renders the first step of the Keepstorm start flow", async () => {
   assert.match(html, /KEEPSTORM/);
   assert.match(html, /Alpha 0\.4/);
   assert.match(html, /keepstorm-banner-v1\.png/);
-  assert.doesNotMatch(html, /Your buildings spawn units on their own\. Destroy the enemy Anchorhold first\./);
+  assert.doesNotMatch(html, /Your buildings spawn units on their own/);
   assert.match(html, /Start a game/);
   assert.match(html, /Play against the AI/);
   assert.match(html, /Online with 2 players/);

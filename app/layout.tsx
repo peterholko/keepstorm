@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Keepstorm",
   description:
-    "A browser strategy game where buildings create units automatically and players race to destroy the enemy Anchorhold.",
+    "A browser strategy game where buildings create units automatically and players race to destroy the enemy Keep.",
   keywords: ["strategy game", "browser game", "base building", "auto battler", "Keepstorm"],
   icons: {
     icon: [
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Keepstorm",
-    description: "Build structures that create units automatically, then destroy the enemy Anchorhold.",
+    description: "Build structures that create units automatically, then destroy the enemy Keep.",
     type: "website",
     siteName: "Keepstorm",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "Keepstorm browser strategy game" }],
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Keepstorm",
-    description: "Build structures that create units automatically, then destroy the enemy Anchorhold.",
+    description: "Build structures that create units automatically, then destroy the enemy Keep.",
     images: ["/og.png"],
   },
 };

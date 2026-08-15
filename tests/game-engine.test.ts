@@ -86,6 +86,12 @@ test("each original faction has five troop lines and three strategic works", () 
   }
 });
 
+test("each faction exposes a distinct generated selection emblem", () => {
+  const emblems = Object.values(FACTIONS).map((faction) => faction.emblem);
+  assert.equal(new Set(emblems).size, emblems.length);
+  for (const emblem of emblems) assert.match(emblem, /^\/game\/factions\/[a-z-]+-emblem-v1\.png$/);
+});
+
 test("the five damage classes create explicit armor strengths and weaknesses", () => {
   assert.equal(DAMAGE_MATRIX.Hammer.Plate, 1.6);
   assert.equal(DAMAGE_MATRIX.Arrow.Cloth, 1.6);

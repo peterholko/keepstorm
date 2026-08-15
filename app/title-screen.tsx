@@ -154,7 +154,8 @@ export default function TitleScreen({
                       onClick={() => onFaction(id)}
                       aria-pressed={faction === id}
                     >
-                      <i style={{ background: option.color }}>{option.crest}</i>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img className="start-faction-emblem" src={option.emblem} alt="" aria-hidden="true" width="512" height="512" />
                       <b>{option.name}</b>
                       <small>{copy.summary}</small>
                       <p>{copy.passive}</p>

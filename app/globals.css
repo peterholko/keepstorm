@@ -73,9 +73,10 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .start-submit { justify-content: flex-end; max-width: 440px; }
 .start-notice { margin: 0; padding: 9px 11px; background: rgba(110, 27, 17, .8); border-left: 3px solid var(--danger); color: #ffe2d7; font-size: 12px; line-height: 1.4; }
 .start-faction-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
-.start-faction-card { min-width: 0; display: grid; grid-template-rows: 49px auto auto 1fr; justify-items: start; gap: 7px; padding: 16px; background: rgba(255, 242, 210, .035); border: 1px solid var(--line); color: var(--cream); text-align: left; cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease; }
+.start-faction-card { min-width: 0; display: grid; grid-template-rows: 84px auto auto 1fr; justify-items: start; gap: 7px; padding: 16px; background: rgba(255, 242, 210, .035); border: 1px solid var(--line); color: var(--cream); text-align: left; cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease; }
 .start-faction-card:hover, .start-faction-card.is-selected { transform: translateY(-2px); background: rgba(240, 189, 72, .1); }
-.start-faction-card i { display: grid; place-items: center; width: 46px; height: 46px; color: #162016; font: 900 22px var(--serif); font-style: normal; clip-path: polygon(50% 0, 93% 24%, 83% 84%, 50% 100%, 17% 84%, 7% 24%); }
+.start-faction-emblem { display: block; width: 82px; height: 82px; object-fit: contain; filter: drop-shadow(0 7px 9px rgba(0, 0, 0, .58)); transform-origin: center; transition: transform .18s ease, filter .18s ease; }
+.start-faction-card:hover .start-faction-emblem, .start-faction-card.is-selected .start-faction-emblem { transform: scale(1.06); filter: drop-shadow(0 8px 12px rgba(0, 0, 0, .68)) drop-shadow(0 0 8px rgba(255, 225, 123, .3)); }
 .start-faction-card b { font: 700 17px/1.15 var(--serif); }
 .start-faction-card small { min-height: 34px; color: rgba(255, 242, 210, .68); font-size: 12px; line-height: 1.4; }
 .start-faction-card p { align-self: end; margin: 5px 0 0; padding-top: 11px; border-top: 1px solid var(--line); color: var(--gold-bright); font-size: 12px; line-height: 1.4; }
@@ -320,8 +321,8 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
   .start-steps { margin-bottom: 23px; }
   .mode-grid, .start-faction-grid { grid-template-columns: 1fr; }
   .mode-card { padding: 15px; }
-  .start-faction-card { grid-template-columns: 48px 1fr; grid-template-rows: auto auto auto; align-items: center; }
-  .start-faction-card i { grid-row: 1 / span 2; }
+  .start-faction-card { grid-template-columns: 72px 1fr; grid-template-rows: auto auto auto; align-items: center; }
+  .start-faction-emblem { grid-row: 1 / span 2; width: 68px; height: 68px; }
   .start-faction-card small { min-height: 0; }
   .start-faction-card p { grid-column: 1 / -1; width: 100%; }
   .step-actions { align-items: stretch; flex-direction: column-reverse; }

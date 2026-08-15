@@ -115,6 +115,7 @@ export interface FactionSpec {
   name: string;
   epithet: string;
   crest: string;
+  emblem: string;
   color: string;
   accent: string;
   passive: string;
@@ -124,9 +125,9 @@ export interface FactionSpec {
 }
 
 export const FACTIONS: Record<FactionId, FactionSpec> = {
-  daybreak: { id: "daybreak", name: "Daybreak Company", epithet: "Formation & protection", crest: "D", color: "#f0bd48", accent: "#d34a2d", passive: "Ordered Ranks: nearby allies share 10% damage resistance.", description: "A balanced host of durable fronts, accurate ranged fire, air support, and protective engineering.", atlas: "/game/daybreak-depth-atlas.png", buildings: ["dawn_bastion", "dawn_quillery", "dawn_beacon", "dawn_aerie", "dawn_bombard", "dawn_aegis", "dawn_tally", "dawn_sunlance"] },
-  briarcrown: { id: "briarcrown", name: "Briarcrown Covenant", epithet: "Regrowth & attrition", crest: "B", color: "#9bc95a", accent: "#d99145", passive: "Deep Roots: every living cohort regenerates health each second.", description: "A patient living army built around regeneration, poison, slowing magic, and fortified siege beasts.", atlas: "/game/briarcrown-depth-atlas.png", buildings: ["briar_hollow", "briar_sporecourt", "briar_mirepool", "briar_mothery", "briar_rootcannon", "briar_heartgrove", "briar_sapvault", "briar_thornspire"] },
-  stormglass: { id: "stormglass", name: "Stormglass Collegium", epithet: "Tempo & disruption", crest: "S", color: "#71e9c3", accent: "#6b78db", passive: "Quick Current: production and attack cycles run 8% faster.", description: "A volatile technical force of rapid fire, stuns, chain lightning, flight, and long-range artillery.", atlas: "/game/stormglass-depth-atlas.png", buildings: ["storm_coilforge", "storm_prismary", "storm_chronowell", "storm_nimbus", "storm_railworks", "storm_static_spire", "storm_measurehouse", "storm_arctower"] },
+  daybreak: { id: "daybreak", name: "Daybreak Company", epithet: "Formation & protection", crest: "D", emblem: "/game/factions/daybreak-emblem-v1.png", color: "#f0bd48", accent: "#d34a2d", passive: "Ordered Ranks: nearby allies share 10% damage resistance.", description: "A balanced host of durable fronts, accurate ranged fire, air support, and protective engineering.", atlas: "/game/daybreak-depth-atlas.png", buildings: ["dawn_bastion", "dawn_quillery", "dawn_beacon", "dawn_aerie", "dawn_bombard", "dawn_aegis", "dawn_tally", "dawn_sunlance"] },
+  briarcrown: { id: "briarcrown", name: "Briarcrown Covenant", epithet: "Regrowth & attrition", crest: "B", emblem: "/game/factions/briarcrown-emblem-v1.png", color: "#9bc95a", accent: "#d99145", passive: "Deep Roots: every living cohort regenerates health each second.", description: "A patient living army built around regeneration, poison, slowing magic, and fortified siege beasts.", atlas: "/game/briarcrown-depth-atlas.png", buildings: ["briar_hollow", "briar_sporecourt", "briar_mirepool", "briar_mothery", "briar_rootcannon", "briar_heartgrove", "briar_sapvault", "briar_thornspire"] },
+  stormglass: { id: "stormglass", name: "Stormglass Collegium", epithet: "Tempo & disruption", crest: "S", emblem: "/game/factions/stormglass-emblem-v1.png", color: "#71e9c3", accent: "#6b78db", passive: "Quick Current: production and attack cycles run 8% faster.", description: "A volatile technical force of rapid fire, stuns, chain lightning, flight, and long-range artillery.", atlas: "/game/stormglass-depth-atlas.png", buildings: ["storm_coilforge", "storm_prismary", "storm_chronowell", "storm_nimbus", "storm_railworks", "storm_static_spire", "storm_measurehouse", "storm_arctower"] },
 };
 
 export const FACTION_IDS = Object.keys(FACTIONS) as FactionId[];

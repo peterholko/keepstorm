@@ -1,7 +1,8 @@
 /** Cloudflare Worker entry point for Keepstorm and its authoritative match rooms. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { isFactionId, type CreateRoomResponse, type JoinRoomResponse } from "../lib/multiplayer/protocol.ts";
+import { teamForCommander } from "../lib/musterhold/engine.ts";
+import { isFactionId, isOnlineMatchMode, type CreateRoomResponse, type JoinRoomResponse } from "../lib/multiplayer/protocol.ts";
 import { KeepstormMatchRoom, type RoomSetupResult } from "./match-room.ts";
 
 interface ImageBinding {
@@ -60,13 +61,14 @@ async function createRoom(request: Request, env: KeepstormEnv): Promise<Response
   if (!sameOrigin(request)) return json({ error: "origin_rejected", message: "Create the room from Keepstorm itself." }, { status: 403 });
   const body = await readSmallJson(request);
   if (!body || !isFactionId(body.faction)) return json({ error: "invalid_faction", message: "Choose a valid Keepstorm faction." }, { status: 400 });
+  if (!isOnlineMatchMode(body.mode)) return json({ error: "invalid_mode", message: "Choose a 1v1 or 2v2 Keepstorm room." }, { status: 400 });
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const roomCode = randomRoomCode();
     const room = env.MATCH_ROOMS.getByName(roomCode);
-    const result = await room.createRoom(roomCode, body.faction);
+    const result = await room.createRoom(roomCode, body.faction, body.mode);
     if (result.ok) {
-      const response: CreateRoomResponse = { roomCode, team: "player", token: result.token };
+      const response: CreateRoomResponse = { roomCode, mode: result.mode, commander: "player", team: "player", token: result.token };
       return json(response, { status: 201 });
     }
     if (result.code !== "conflict") return setupError(result);
@@ -82,7 +84,13 @@ async function joinRoom(request: Request, env: KeepstormEnv, roomCode: string): 
   const room = env.MATCH_ROOMS.getByName(roomCode);
   const result = await room.joinRoom(body.faction);
   if (!result.ok) return setupError(result);
-  const response: JoinRoomResponse = { roomCode, team: "enemy", token: result.token };
+  const response: JoinRoomResponse = {
+    roomCode,
+    mode: result.mode,
+    commander: result.commander,
+    team: teamForCommander(result.commander),
+    token: result.token,
+  };
   return json(response);
 }
 

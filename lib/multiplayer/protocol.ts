@@ -3,18 +3,35 @@ import {
   FACTION_IDS,
   SHOP_ITEM_KINDS,
   type BuildingKind,
+  type CommanderId,
   type FactionId,
   type GameState,
+  type MatchMode,
   type ShopItemKind,
   type Team,
 } from "../musterhold/engine.ts";
 
-export const MULTIPLAYER_PROTOCOL_VERSION = 1 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 2 as const;
 export const ROOM_CODE_LENGTH = 8;
 export const RECONNECT_GRACE_MS = 30_000;
 
 export type RoomPhase = "waiting" | "playing" | "round_complete" | "match_complete";
 export type ConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+export type OnlineMatchMode = Exclude<MatchMode, "solo">;
+
+export const ROOM_SEAT_ORDER: readonly CommanderId[] = ["player", "enemy", "player_ally", "enemy_ally"];
+
+export function seatsForMode(mode: OnlineMatchMode): CommanderId[] {
+  return mode === "2v2" ? [...ROOM_SEAT_ORDER] : ["player", "enemy"];
+}
+
+export function isCommanderId(value: unknown): value is CommanderId {
+  return value === "player" || value === "enemy" || value === "player_ally" || value === "enemy_ally";
+}
+
+export function isOnlineMatchMode(value: unknown): value is OnlineMatchMode {
+  return value === "1v1" || value === "2v2";
+}
 
 export type GameCommand =
   | { action: "place_building"; kind: BuildingKind; gridX: number; gridY: number }
@@ -41,10 +58,12 @@ export interface RoomSeatView {
 
 export interface RoomSnapshot {
   code: string;
+  mode: OnlineMatchMode;
   phase: RoomPhase;
   revision: number;
+  localCommander: CommanderId;
   localTeam: Team;
-  seats: Record<Team, RoomSeatView>;
+  seats: Record<CommanderId, RoomSeatView>;
   game: GameState | null;
 }
 
@@ -56,17 +75,18 @@ export type ServerMessage =
 
 export interface RoomCredential {
   roomCode: string;
+  mode: OnlineMatchMode;
+  commander: CommanderId;
   team: Team;
   token: string;
 }
 
 export interface CreateRoomResponse extends RoomCredential {
+  commander: "player";
   team: "player";
 }
 
-export interface JoinRoomResponse extends RoomCredential {
-  team: "enemy";
-}
+export type JoinRoomResponse = RoomCredential;
 
 type JsonObject = Record<string, unknown>;
 
@@ -143,9 +163,11 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   const snapshot = asObject(candidate.snapshot);
   return Boolean(snapshot
     && isRoomCode(snapshot.code)
+    && isOnlineMatchMode(snapshot.mode)
     && typeof snapshot.phase === "string"
     && ["waiting", "playing", "round_complete", "match_complete"].includes(snapshot.phase)
     && Number.isSafeInteger(snapshot.revision)
+    && isCommanderId(snapshot.localCommander)
     && (snapshot.localTeam === "player" || snapshot.localTeam === "enemy")
     && asObject(snapshot.seats));
 }

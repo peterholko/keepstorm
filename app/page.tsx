@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AtlasSprite from "./atlas-sprite";
 import GameCanvas from "./game-canvas";
 import { useMultiplayer } from "./use-multiplayer";
-import { ROOM_CODE_LENGTH, normalizeRoomCode, type RoomSnapshot } from "@/lib/multiplayer/protocol";
+import { ROOM_CODE_LENGTH, normalizeRoomCode, seatsForMode, type OnlineMatchMode, type RoomSnapshot } from "@/lib/multiplayer/protocol";
 import {
   BUILDING_CAP,
   BUILDING_SPECS,
@@ -20,10 +20,15 @@ import {
   buyShopItem,
   canAfford,
   castReprieve,
+  commanderBuildingCount,
+  commanderForBuilding,
+  commanderLabel,
+  commandersForTeam,
   costForUpgrade,
   createInitialState,
   factionBuildings,
   incomeFor,
+  incomeForCommander,
   matchReport,
   placeBuilding,
   reprieveReady,
@@ -31,10 +36,13 @@ import {
   stepGame,
   toggleProduction,
   toggleSynchronization,
+  teamDisplayName,
+  teamForCommander,
   unitCount,
   upgradeBuilding,
   type Building,
   type BuildingKind,
+  type CommanderId,
   type FactionId,
   type GameState,
   type ResourceCost,
@@ -86,6 +94,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
           <article><i>06</i><div><b>Wave synchronization</b><span>Rally Sync releases every active Foundry together at the slowest cadence. Pause individual Foundries for manual timing, or keep them independent for maximum throughput.</span></div></article>
           <article><i>07</i><div><b>One Reprieve per round</b><span>After 1:15, your emergency seal erases invaders on your half and wounds the distant host. An unused seal can also decide a time-limit tie.</span></div></article>
           <article><i>08</i><div><b>First to two rounds</b><span>Destroy the rival Anchorhold. At the time limit, unused Reprieve, then income, keep health, and remaining army strength resolve the ledger in that order.</span></div></article>
+          <article><i>09</i><div><b>True 2v2 alliances</b><span>Four commanders bring separate factions, reserves, income, yards, structures, items, Rally Sync, and Reprieves. Allies share one Anchorhold and one battlefield army, so complementary counters and synchronized waves decide the road.</span></div></article>
         </div>
 
         <div className="counter-ledger" aria-label="Damage relationships">
@@ -102,12 +111,14 @@ function RulesModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function TitleScreen({ faction, joinCode, onlineBusy, onlineNotice, onFaction, onPlay, onCreateRoom, onJoinCode, onJoinRoom, onRules }: {
+function TitleScreen({ faction, matchMode, joinCode, onlineBusy, onlineNotice, onFaction, onMode, onPlay, onCreateRoom, onJoinCode, onJoinRoom, onRules }: {
   faction: FactionId;
+  matchMode: OnlineMatchMode;
   joinCode: string;
   onlineBusy: boolean;
   onlineNotice: string | null;
   onFaction: (faction: FactionId) => void;
+  onMode: (mode: OnlineMatchMode) => void;
   onPlay: () => void;
   onCreateRoom: () => void;
   onJoinCode: (code: string) => void;
@@ -122,7 +133,7 @@ function TitleScreen({ faction, joinCode, onlineBusy, onlineNotice, onFaction, o
       <header className="title-header">
         <span className="brand-rune">K</span>
         <strong>KEEPSTORM</strong>
-        <span className="alpha-label">MULTIPLAYER ALPHA · 0.3</span>
+        <span className="alpha-label">TEAM ALPHA · 0.4</span>
       </header>
 
       <section className="hero-copy">
@@ -140,9 +151,13 @@ function TitleScreen({ faction, joinCode, onlineBusy, onlineNotice, onFaction, o
             );
           })}
         </div>
+        <div className="match-mode-picker" aria-label="Choose an online room size">
+          <button className={matchMode === "1v1" ? "is-selected" : ""} onClick={() => onMode("1v1")} aria-pressed={matchMode === "1v1"}><b>1v1 Duel</b><small>Two commanders · both yards</small></button>
+          <button className={matchMode === "2v2" ? "is-selected" : ""} onClick={() => onMode("2v2")} aria-pressed={matchMode === "2v2"}><b>2v2 Teams</b><small>Four commanders · personal yards & reserves</small></button>
+        </div>
         <div className="hero-actions">
           <button className="primary-button primary-button--hero" onClick={onPlay}>Solo skirmish <span>→</span></button>
-          <button className="secondary-button online-create-button" onClick={onCreateRoom} disabled={onlineBusy}>{onlineBusy ? "Opening room…" : "Create online room"}</button>
+          <button className="secondary-button online-create-button" onClick={onCreateRoom} disabled={onlineBusy}>{onlineBusy ? "Opening room…" : `Create ${matchMode} room`}</button>
           <button className="text-button" onClick={onRules}>Read the field guide <span>↗</span></button>
         </div>
         <form className="join-room-form" onSubmit={(event) => { event.preventDefault(); onJoinRoom(); }}>
@@ -160,7 +175,7 @@ function TitleScreen({ faction, joinCode, onlineBusy, onlineNotice, onFaction, o
         <p>{chosenFaction.description}</p>
         <div><span>DOCTRINE</span><b>{chosenFaction.passive}</b></div>
         <div><span>ARSENAL</span><b>5 cohorts · special · economy · tower</b></div>
-        <div><span>VICTORY</span><b>Win two rounds · solo or online 1v1</b></div>
+        <div><span>VICTORY</span><b>Win two rounds · solo, online 1v1 or team 2v2</b></div>
       </aside>
 
       <footer className="title-footer">ORIGINAL ALPHA ART · KEYBOARD, MOUSE & TOUCH</footer>
@@ -168,27 +183,30 @@ function TitleScreen({ faction, joinCode, onlineBusy, onlineNotice, onFaction, o
   );
 }
 
-function LobbyModal({ snapshot, roomCode, localTeam, connection, copied, onCopy, onReady, onLeave }: {
+function LobbyModal({ snapshot, roomCode, localCommander, connection, copied, onCopy, onReady, onLeave }: {
   snapshot: RoomSnapshot | null;
   roomCode: string;
-  localTeam: Team | null;
+  localCommander: CommanderId | null;
   connection: string;
   copied: boolean;
   onCopy: () => void;
   onReady: (ready: boolean) => void;
   onLeave: () => void;
 }) {
-  const localSeat = localTeam && snapshot ? snapshot.seats[localTeam] : null;
-  const rivalTeam: Team | null = localTeam === "player" ? "enemy" : localTeam === "enemy" ? "player" : null;
-  const rivalSeat = rivalTeam && snapshot ? snapshot.seats[rivalTeam] : null;
-  const canReady = connection === "connected" && Boolean(rivalSeat?.claimed && rivalSeat.connected);
+  const mode = snapshot?.mode ?? "1v1";
+  const requiredSeats = seatsForMode(mode);
+  const localSeat = localCommander && snapshot ? snapshot.seats[localCommander] : null;
+  const assembled = snapshot ? requiredSeats.filter((commander) => snapshot.seats[commander].claimed).length : 0;
+  const localTeam = localCommander ? teamForCommander(localCommander) : null;
+  const allAssembled = assembled === requiredSeats.length;
+  const canReady = connection === "connected" && allAssembled && requiredSeats.every((commander) => snapshot?.seats[commander].connected);
 
   return (
     <div className="modal-backdrop lobby-backdrop">
       <section className="lobby-modal" role="dialog" aria-modal="true" aria-labelledby="lobby-heading">
-        <span className="eyebrow">LIVE 1V1 · AUTHORITATIVE ROOM</span>
-        <h2 id="lobby-heading">{rivalSeat?.claimed ? "Two commanders assembled." : "Open invitation."}</h2>
-        <p>{rivalSeat?.claimed ? "Both sides choose when the battle begins. Ready up when your faction is locked." : "Send the room code or invitation link to one other commander."}</p>
+        <span className="eyebrow">LIVE {mode.toUpperCase()} · AUTHORITATIVE ROOM</span>
+        <h2 id="lobby-heading">{allAssembled ? `${requiredSeats.length} commanders assembled.` : `${assembled} of ${requiredSeats.length} seats claimed.`}</h2>
+        <p>{allAssembled ? "Every commander chooses readiness. In team mode, allies keep separate factions, reserves, yards, and wave controls." : `Send the room code or invitation link to ${requiredSeats.length - assembled} more commander${requiredSeats.length - assembled === 1 ? "" : "s"}. Seats fill East, West ally, then East ally.`}</p>
 
         <div className="room-code-panel">
           <span>ROOM CODE</span>
@@ -197,14 +215,15 @@ function LobbyModal({ snapshot, roomCode, localTeam, connection, copied, onCopy,
         </div>
 
         <div className="lobby-seats">
-          {(["player", "enemy"] as Team[]).map((seatTeam) => {
-            const seat = snapshot?.seats[seatTeam];
-            const isYou = seatTeam === localTeam;
+          {requiredSeats.map((commander) => {
+            const seat = snapshot?.seats[commander];
+            const isYou = commander === localCommander;
+            const isAlly = !isYou && localTeam === teamForCommander(commander);
             const factionInfo = seat?.faction ? FACTIONS[seat.faction] : null;
             return (
-              <article key={seatTeam} className={`${seat?.claimed ? "is-claimed" : ""}${isYou ? " is-you" : ""}`}>
+              <article key={commander} className={`${seat?.claimed ? "is-claimed" : ""}${isYou ? " is-you" : ""}${isAlly ? " is-ally" : ""}`}>
                 <i style={factionInfo ? { background: factionInfo.color } : undefined}>{factionInfo?.crest ?? "?"}</i>
-                <div><small>{isYou ? "YOUR SEAT" : "RIVAL SEAT"}</small><b>{factionInfo?.name ?? "Awaiting commander"}</b><span>{seat?.connected ? seat.ready ? "Ready for battle" : "Connected · choosing readiness" : seat?.claimed ? "Reconnecting…" : "Invitation available"}</span></div>
+                <div><small>{isYou ? "YOUR SEAT" : isAlly ? "ALLY SEAT" : "RIVAL SEAT"} · {commanderLabel(commander).toUpperCase()}</small><b>{factionInfo?.name ?? "Awaiting commander"}</b><span>{seat?.connected ? seat.ready ? "Ready for battle" : "Connected · choosing readiness" : seat?.claimed ? "Reconnecting…" : "Invitation available"}</span></div>
               </article>
             );
           })}
@@ -212,7 +231,7 @@ function LobbyModal({ snapshot, roomCode, localTeam, connection, copied, onCopy,
 
         <div className={`connection-state connection-state--${connection}`}><i />{connection === "connected" ? "Live room connected" : connection === "reconnecting" ? "Restoring your seat…" : "Opening live room…"}</div>
         <div className="lobby-actions">
-          <button className="primary-button" disabled={!canReady} onClick={() => onReady(!localSeat?.ready)}>{localSeat?.ready ? "Cancel readiness" : rivalSeat?.claimed ? "Ready for battle" : "Waiting for rival"} <span>→</span></button>
+          <button className="primary-button" disabled={!canReady} onClick={() => onReady(!localSeat?.ready)}>{localSeat?.ready ? "Cancel readiness" : allAssembled ? "Ready for battle" : "Waiting for commanders"} <span>→</span></button>
           <button className="text-button" onClick={onLeave}>Leave room</button>
         </div>
         <small className="lobby-footnote">Your seat reconnects automatically after a brief network interruption. A live match allows 30 seconds to return.</small>
@@ -221,17 +240,17 @@ function LobbyModal({ snapshot, roomCode, localTeam, connection, copied, onCopy,
   );
 }
 
-function StructureCard({ kind, game, localTeam, selected, hotkey, onSelect }: { kind: BuildingKind; game: GameState; localTeam: Team; selected: boolean; hotkey: number; onSelect: () => void }) {
+function StructureCard({ kind, game, localCommander, selected, hotkey, onSelect }: { kind: BuildingKind; game: GameState; localCommander: CommanderId; selected: boolean; hotkey: number; onSelect: () => void }) {
   const spec = BUILDING_SPECS[kind];
   const unit = spec.unitKind ? UNIT_SPECS[spec.unitKind] : null;
-  const unavailable = game.status !== "playing" || !canAfford(game.resources[localTeam], spec.cost) || buildingCount(game, localTeam) >= BUILDING_CAP;
+  const unavailable = game.status !== "playing" || !canAfford(game.resources[localCommander], spec.cost) || commanderBuildingCount(game, localCommander) >= BUILDING_CAP;
   const role = unit ? `${unit.damageType} · ${unit.armorType}${unit.flying ? " · AIR" : ""}` : spec.category === "special" ? "FACTION POWER" : spec.category.toUpperCase();
   const effect = unit ? `${unit.role} · ${unit.ability ?? "disciplined"}` : spec.effect;
 
   return (
     <button className={`foundry-card${selected ? " is-selected" : ""}`} onClick={onSelect} disabled={unavailable} aria-pressed={selected} aria-label={`${spec.name}, ${costText(spec.cost)}. ${spec.description}`}>
       <i className="hotkey">{hotkey}</i>
-      <AtlasSprite src={FACTIONS[game.factions[localTeam]].atlas} index={spec.atlasIndex} rows={4} columns={4} className="foundry-art" />
+      <AtlasSprite src={FACTIONS[game.factions[localCommander]].atlas} index={spec.atlasIndex} rows={4} columns={4} className="foundry-art" />
       <span className="foundry-copy">
         <b>{spec.name}</b>
         <small>{role}</small>
@@ -243,29 +262,29 @@ function StructureCard({ kind, game, localTeam, selected, hotkey, onSelect }: { 
   );
 }
 
-function ShopCard({ item, game, localTeam, hotkey, onBuy }: { item: ShopItemKind; game: GameState; localTeam: Team; hotkey: number; onBuy: () => void }) {
+function ShopCard({ item, game, localCommander, hotkey, onBuy }: { item: ShopItemKind; game: GameState; localCommander: CommanderId; hotkey: number; onBuy: () => void }) {
   const spec = SHOP_ITEMS[item];
-  const unavailable = !canAfford(game.resources[localTeam], spec.cost) || (item === "rally_horn" && game.rallyHorn[localTeam]);
+  const unavailable = !canAfford(game.resources[localCommander], spec.cost) || (item === "rally_horn" && game.rallyHorn[localCommander]);
   return (
     <button className="shop-card" onClick={onBuy} disabled={unavailable} aria-label={`${spec.name}, ${costText(spec.cost)}. ${spec.description}`}>
       <i className="hotkey">{hotkey}</i>
       <strong>{SHOP_GLYPHS[item]}</strong>
       <span><b>{spec.name}</b><small>{spec.permanent ? "PERMANENT" : "INSTANT"}</small><em>{spec.description}</em></span>
-      <mark>{item === "rally_horn" && game.rallyHorn[localTeam] ? "OWNED" : costText(spec.cost)}</mark>
+      <mark>{item === "rally_horn" && game.rallyHorn[localCommander] ? "OWNED" : costText(spec.cost)}</mark>
     </button>
   );
 }
 
-function BuildingInspector({ building, game, localTeam, onUpgrade, onToggle, onClose }: { building: Building; game: GameState; localTeam: Team; onUpgrade: () => void; onToggle: () => void; onClose: () => void }) {
+function BuildingInspector({ building, game, localCommander, onUpgrade, onToggle, onClose }: { building: Building; game: GameState; localCommander: CommanderId; onUpgrade: () => void; onToggle: () => void; onClose: () => void }) {
   const spec = BUILDING_SPECS[building.kind];
   const unit = spec.unitKind ? UNIT_SPECS[spec.unitKind] : null;
   const cost = costForUpgrade(building);
-  const affordable = cost ? canAfford(game.resources[localTeam], cost) : false;
+  const affordable = cost ? canAfford(game.resources[localCommander], cost) : false;
   const levelName = building.level === 1 ? "Established" : building.level === 2 ? "Veteran" : "Legendary";
   return (
     <section className="building-inspector" aria-label={`Inspect ${spec.name}`}>
       <button className="inspector-close" onClick={onClose} aria-label="Close structure inspector">×</button>
-      <AtlasSprite src={FACTIONS[game.factions[localTeam]].atlas} index={spec.atlasIndex} rows={4} columns={4} className="inspector-art" />
+      <AtlasSprite src={FACTIONS[game.factions[localCommander]].atlas} index={spec.atlasIndex} rows={4} columns={4} className="inspector-art" />
       <div className="inspector-copy">
         <span className="eyebrow">{spec.category} · {levelName} rank</span>
         <h3>{spec.name}</h3>
@@ -294,12 +313,12 @@ function GameHeader({ game, onRules, onPause, onLeave }: { game: GameState; onRu
     <header className="game-header">
       <button className="game-brand" onClick={onLeave} aria-label="Return to title screen"><span className="brand-rune">K</span><strong>KEEPSTORM</strong></button>
       <div className="keep-score keep-score--player">
-        <div><b style={{ color: playerFaction.color }}>{playerFaction.name.toUpperCase()}</b><span>{Math.ceil(game.keeps.player)} / {KEEP_MAX_HP}</span></div>
+        <div><b style={{ color: playerFaction.color }}>{teamDisplayName(game, "player").toUpperCase()}</b><span>{Math.ceil(game.keeps.player)} / {KEEP_MAX_HP}</span></div>
         <i><span style={{ width: `${playerRatio * 100}%`, background: playerFaction.color }} /></i>
       </div>
       <div className="match-clock"><span>ROUND {game.round} · FIRST TO 2</span><b>{formatClock(MATCH_LIMIT - game.elapsed)}</b><small>{game.roundWins.player} — {game.roundWins.enemy} · {game.started ? "LEDGER CLOSES" : "AWAITING FIRST STRUCTURE"}</small></div>
       <div className="keep-score keep-score--enemy">
-        <div><b style={{ color: enemyFaction.color }}>{enemyFaction.name.toUpperCase()}</b><span>{Math.ceil(game.keeps.enemy)} / {KEEP_MAX_HP}</span></div>
+        <div><b style={{ color: enemyFaction.color }}>{teamDisplayName(game, "enemy").toUpperCase()}</b><span>{Math.ceil(game.keeps.enemy)} / {KEEP_MAX_HP}</span></div>
         <i><span style={{ width: `${enemyRatio * 100}%`, background: enemyFaction.color }} /></i>
       </div>
       <div className="header-actions">
@@ -310,8 +329,8 @@ function GameHeader({ game, onRules, onPause, onLeave }: { game: GameState; onRu
   );
 }
 
-function TutorialCard({ game, localTeam, selected, onDismiss }: { game: GameState; localTeam: Team; selected: BuildingKind | null; onDismiss: () => void }) {
-  const hasBuilding = game.stats.buildingsPlaced[localTeam] > 0;
+function TutorialCard({ game, localCommander, selected, onDismiss }: { game: GameState; localCommander: CommanderId; selected: BuildingKind | null; onDismiss: () => void }) {
+  const hasBuilding = game.stats.buildingsPlaced[localCommander] > 0;
   return (
     <aside className="tutorial-card">
       <span className="tutorial-step">FIRST COMMAND · {hasBuilding ? "03" : selected ? "02" : "01"} / 03</span>
@@ -323,9 +342,9 @@ function TutorialCard({ game, localTeam, selected, onDismiss }: { game: GameStat
   );
 }
 
-function CommandDeck({ game, localTeam, tab, selected, inspected, onTab, onSelect, onBuy, onReprieve, onSync, onUpgrade, onToggleProduction, onCloseInspector }: {
+function CommandDeck({ game, localCommander, tab, selected, inspected, onTab, onSelect, onBuy, onReprieve, onSync, onUpgrade, onToggleProduction, onCloseInspector }: {
   game: GameState;
-  localTeam: Team;
+  localCommander: CommanderId;
   tab: CommandTab;
   selected: BuildingKind | null;
   inspected: Building | null;
@@ -339,10 +358,10 @@ function CommandDeck({ game, localTeam, tab, selected, inspected, onTab, onSelec
   onCloseInspector: () => void;
 }) {
   const remaining = Math.max(0, REPRIEVE_READY_AT - game.elapsed);
-  const ready = reprieveReady(game, localTeam);
+  const ready = reprieveReady(game, localCommander);
   const choices = tab === "troops"
-    ? factionBuildings(game.factions[localTeam], "troop")
-    : [...factionBuildings(game.factions[localTeam], "special"), ...factionBuildings(game.factions[localTeam], "economy"), ...factionBuildings(game.factions[localTeam], "tower")];
+    ? factionBuildings(game.factions[localCommander], "troop")
+    : [...factionBuildings(game.factions[localCommander], "special"), ...factionBuildings(game.factions[localCommander], "economy"), ...factionBuildings(game.factions[localCommander], "tower")];
 
   return (
     <section className="command-deck" aria-label="War ledger">
@@ -356,30 +375,30 @@ function CommandDeck({ game, localTeam, tab, selected, inspected, onTab, onSelec
       </div>
 
       <div className="command-content">
-        {inspected ? <BuildingInspector building={inspected} game={game} localTeam={localTeam} onUpgrade={onUpgrade} onToggle={onToggleProduction} onClose={onCloseInspector} /> : tab === "shop" ? (
-          <div className="shop-list">{SHOP_ITEM_KINDS.map((item, index) => <ShopCard key={item} item={item} game={game} localTeam={localTeam} hotkey={index + 1} onBuy={() => onBuy(item)} />)}</div>
+        {inspected ? <BuildingInspector building={inspected} game={game} localCommander={localCommander} onUpgrade={onUpgrade} onToggle={onToggleProduction} onClose={onCloseInspector} /> : tab === "shop" ? (
+          <div className="shop-list">{SHOP_ITEM_KINDS.map((item, index) => <ShopCard key={item} item={item} game={game} localCommander={localCommander} hotkey={index + 1} onBuy={() => onBuy(item)} />)}</div>
         ) : (
-          <div className={`foundry-list foundry-list--${tab}`}>{choices.map((kind, index) => <StructureCard key={kind} kind={kind} game={game} localTeam={localTeam} selected={selected === kind} hotkey={index + 1} onSelect={() => onSelect(kind)} />)}</div>
+          <div className={`foundry-list foundry-list--${tab}`}>{choices.map((kind, index) => <StructureCard key={kind} kind={kind} game={game} localCommander={localCommander} selected={selected === kind} hotkey={index + 1} onSelect={() => onSelect(kind)} />)}</div>
         )}
       </div>
 
       <div className="tactics-stack">
-        <button className={`sync-button${game.syncEnabled[localTeam] ? " is-active" : ""}`} onClick={onSync} disabled={!game.started}>
-          <b>{game.syncEnabled[localTeam] ? "RALLY SYNC ON" : "RALLY SYNC OFF"}</b>
-          <small>{game.syncEnabled[localTeam] ? `Wave in ${formatClock(game.syncClock[localTeam])}` : "S · group deployments"}</small>
+        <button className={`sync-button${game.syncEnabled[localCommander] ? " is-active" : ""}`} onClick={onSync} disabled={!game.started}>
+          <b>{game.syncEnabled[localCommander] ? "RALLY SYNC ON" : "RALLY SYNC OFF"}</b>
+          <small>{game.syncEnabled[localCommander] ? `Wave in ${formatClock(game.syncClock[localCommander])}` : "S · group your deployments"}</small>
         </button>
         <button className={`reprieve-button${ready ? " is-ready" : ""}`} disabled={!ready} onClick={onReprieve} aria-label={ready ? "Cast Reprieve" : `Reprieve ready in ${formatClock(remaining)}`}>
           <AtlasSprite src="/game/icons-atlas.png" index={3} className="reprieve-art" />
-          <span><b>REPRIEVE</b><small>{game.reprieveUsed[localTeam] ? "SPENT" : ready ? "READY · SPACE" : `CHARGING · ${formatClock(remaining)}`}</small></span>
+          <span><b>REPRIEVE</b><small>{game.reprieveUsed[localCommander] ? "SPENT" : ready ? "READY · SPACE" : `CHARGING · ${formatClock(remaining)}`}</small></span>
         </button>
       </div>
     </section>
   );
 }
 
-function ResultModal({ game, localTeam, onlineSnapshot, answer, copied, onAnswer, onCopy, onContinue, onRestart, onTitle }: {
+function ResultModal({ game, localCommander, onlineSnapshot, answer, copied, onAnswer, onCopy, onContinue, onRestart, onTitle }: {
   game: GameState;
-  localTeam: Team;
+  localCommander: CommanderId;
   onlineSnapshot: RoomSnapshot | null;
   answer: string;
   copied: boolean;
@@ -389,15 +408,16 @@ function ResultModal({ game, localTeam, onlineSnapshot, answer, copied, onAnswer
   onRestart: () => void;
   onTitle: () => void;
 }) {
+  const localTeam = teamForCommander(localCommander);
   const playerSideWon = game.status === "won" || game.status === "round_won";
   const localWon = localTeam === "player" ? playerSideWon : !playerSideWon;
   const final = game.status === "won" || game.status === "lost";
   const victorTeam: Team = playerSideWon ? "player" : "enemy";
-  const victor = FACTIONS[game.factions[victorTeam]].name;
-  const localReady = onlineSnapshot?.seats[localTeam].ready ?? false;
+  const victor = teamDisplayName(game, victorTeam);
+  const localReady = onlineSnapshot?.seats[localCommander].ready ?? false;
   const online = Boolean(onlineSnapshot);
-  const rivalTeam: Team = localTeam === "player" ? "enemy" : "player";
-  const rivalAvailable = Boolean(onlineSnapshot?.seats[rivalTeam].claimed && onlineSnapshot.seats[rivalTeam].connected);
+  const roomSeats = onlineSnapshot ? seatsForMode(onlineSnapshot.mode) : [];
+  const roomAvailable = onlineSnapshot ? roomSeats.every((commander) => onlineSnapshot.seats[commander].claimed && onlineSnapshot.seats[commander].connected) : true;
   return (
     <div className="modal-backdrop result-backdrop">
       <section className={`result-modal ${localWon ? "is-victory" : "is-defeat"}`} role="dialog" aria-modal="true" aria-labelledby="result-heading">
@@ -407,13 +427,13 @@ function ResultModal({ game, localTeam, onlineSnapshot, answer, copied, onAnswer
         <p>{game.event}</p>
         <div className="result-stats">
           <div><span>YOUR SCORE</span><b>{game.roundWins[localTeam]}–{game.roundWins[localTeam === "player" ? "enemy" : "player"]}</b></div>
-          <div><span>STRUCTURES</span><b>{game.stats.buildingsPlaced[localTeam]}</b></div>
-          <div><span>UPGRADES</span><b>{game.stats.upgrades[localTeam]}</b></div>
-          <div><span>COHORTS</span><b>{game.stats.unitsSpawned[localTeam]}</b></div>
+          <div><span>YOUR STRUCTURES</span><b>{game.stats.buildingsPlaced[localCommander]}</b></div>
+          <div><span>YOUR UPGRADES</span><b>{game.stats.upgrades[localCommander]}</b></div>
+          <div><span>YOUR COHORTS</span><b>{game.stats.unitsSpawned[localCommander]}</b></div>
         </div>
         {final && <fieldset className="feedback-field"><legend>What felt most decisive?</legend><div>{FEEDBACK_CHOICES.map((choice) => <button key={choice} className={answer === choice ? "is-selected" : ""} onClick={() => onAnswer(choice)}>{choice}</button>)}</div></fieldset>}
         <div className="result-actions">
-          <button className="primary-button" disabled={online && (localReady || !rivalAvailable)} onClick={final ? onRestart : onContinue}>{online ? !rivalAvailable ? "Rival left the room" : localReady ? "Waiting for rival…" : final ? "Ready for rematch" : "Ready for next round" : final ? "New match" : "Muster next round"} <span>→</span></button>
+          <button className="primary-button" disabled={online && (localReady || !roomAvailable)} onClick={final ? onRestart : onContinue}>{online ? !roomAvailable ? "A commander left the room" : localReady ? "Waiting for commanders…" : final ? "Ready for rematch" : "Ready for next round" : final ? "New match" : "Muster next round"} <span>→</span></button>
           {final && <button className="secondary-button" onClick={onCopy}>{copied ? "Report copied ✓" : "Copy playtest report"}</button>}
           <button className="text-button" onClick={onTitle}>Return to title</button>
         </div>
@@ -426,7 +446,9 @@ export default function Home() {
   const {
     connection,
     snapshot,
+    commander: onlineCommander,
     team: onlineTeam,
+    mode: onlineMode,
     roomCode,
     notice: onlineNotice,
     busy: onlineBusy,
@@ -438,6 +460,7 @@ export default function Home() {
   } = useMultiplayer();
   const [screen, setScreen] = useState<Screen>("title");
   const [faction, setFaction] = useState<FactionId>("daybreak");
+  const [matchMode, setMatchMode] = useState<OnlineMatchMode>("2v2");
   const [soloGame, setGame] = useState<GameState>(() => createInitialState("daybreak"));
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState<CommandTab>("troops");
@@ -450,19 +473,20 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   const lastTick = useRef(0);
-  const online = Boolean(roomCode && onlineTeam);
+  const online = Boolean(roomCode && onlineCommander && onlineTeam);
   const game = online && snapshot?.game ? snapshot.game : soloGame;
   const showingGame = screen === "game" || Boolean(online && snapshot?.game);
-  const localTeam: Team = onlineTeam ?? "player";
+  const localCommander: CommanderId = onlineCommander ?? "player";
+  const localTeam: Team = teamForCommander(localCommander);
   const rivalTeam: Team = localTeam === "player" ? "enemy" : "player";
   const paused = overlay !== null || game.status !== "playing";
-  const inspected = game.buildings.find((building) => building.id === selectedBuildingId && building.team === localTeam) ?? null;
+  const inspected = game.buildings.find((building) => building.id === selectedBuildingId && commanderForBuilding(building) === localCommander) ?? null;
 
   const tabChoices = useMemo(() => tab === "troops"
-    ? factionBuildings(game.factions[localTeam], "troop")
+    ? factionBuildings(game.factions[localCommander], "troop")
     : tab === "works"
-      ? [...factionBuildings(game.factions[localTeam], "special"), ...factionBuildings(game.factions[localTeam], "economy"), ...factionBuildings(game.factions[localTeam], "tower")]
-      : [], [game.factions, localTeam, tab]);
+      ? [...factionBuildings(game.factions[localCommander], "special"), ...factionBuildings(game.factions[localCommander], "economy"), ...factionBuildings(game.factions[localCommander], "tower")]
+      : [], [game.factions, localCommander, tab]);
 
   useEffect(() => {
     const invitation = normalizeRoomCode(new URL(window.location.href).searchParams.get("room") ?? "");
@@ -500,7 +524,7 @@ export default function Home() {
       if (event.key.toLowerCase() === "e") { setTab("shop"); setSelectedBuildingId(null); return; }
       if (event.key.toLowerCase() === "s") {
         if (online) sendCommand({ action: "toggle_sync" });
-        else setGame((current) => toggleSynchronization(current, localTeam));
+        else setGame((current) => toggleSynchronization(current, localCommander));
         return;
       }
       const index = Number(event.key) - 1;
@@ -509,11 +533,11 @@ export default function Home() {
           const item = SHOP_ITEM_KINDS[index];
           if (item) {
             if (online) sendCommand({ action: "buy_item", item });
-            else setGame((current) => buyShopItem(current, localTeam, item));
+            else setGame((current) => buyShopItem(current, localCommander, item));
           }
         } else {
           const kind = tabChoices[index];
-          if (kind && canAfford(game.resources[localTeam], BUILDING_SPECS[kind].cost) && buildingCount(game, localTeam) < BUILDING_CAP) {
+          if (kind && canAfford(game.resources[localCommander], BUILDING_SPECS[kind].cost) && commanderBuildingCount(game, localCommander) < BUILDING_CAP) {
             setSelected(kind);
             setSelectedBuildingId(null);
           }
@@ -522,12 +546,12 @@ export default function Home() {
       if (event.code === "Space") {
         event.preventDefault();
         if (online) sendCommand({ action: "cast_reprieve" });
-        else setGame((current) => castReprieve(current, localTeam));
+        else setGame((current) => castReprieve(current, localCommander));
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [game, localTeam, online, overlay, selected, selectedBuildingId, sendCommand, showingGame, tab, tabChoices]);
+  }, [game, localCommander, online, overlay, selected, selectedBuildingId, sendCommand, showingGame, tab, tabChoices]);
 
   const selectedDescription = selected ? BUILDING_SPECS[selected].description : inspected ? `${BUILDING_SPECS[inspected.kind].name} selected for upgrades and production control.` : null;
 
@@ -566,12 +590,14 @@ export default function Home() {
     return <>
       <TitleScreen
         faction={faction}
+        matchMode={matchMode}
         joinCode={joinCode}
         onlineBusy={onlineBusy}
         onlineNotice={onlineNotice}
         onFaction={setFaction}
+        onMode={setMatchMode}
         onPlay={beginMatch}
-        onCreateRoom={() => { setInviteCopied(false); void createOnlineRoom(faction); }}
+        onCreateRoom={() => { setInviteCopied(false); void createOnlineRoom(faction, matchMode); }}
         onJoinCode={setJoinCode}
         onJoinRoom={() => { setInviteCopied(false); void joinOnlineRoom(joinCode, faction); }}
         onRules={() => setOverlay("rules")}
@@ -580,7 +606,7 @@ export default function Home() {
       {roomCode && <LobbyModal
         snapshot={snapshot}
         roomCode={roomCode}
-        localTeam={onlineTeam}
+        localCommander={onlineCommander}
         connection={connection}
         copied={inviteCopied}
         onCopy={async () => {
@@ -597,54 +623,55 @@ export default function Home() {
     </>;
   }
 
-  const localResources = game.resources[localTeam];
+  const localResources = game.resources[localCommander];
+  const ally = commandersForTeam(game, localTeam).find((commander) => commander !== localCommander);
   return (
     <main className="game-shell">
       <GameHeader game={game} onRules={() => setOverlay("rules")} onPause={() => setOverlay("pause")} onLeave={() => setOverlay("leave")} />
-      {online && <div className={`multiplayer-status multiplayer-status--${connection}`} role="status"><i />{connection === "connected" ? `LIVE 1V1 · ${roomCode}` : "RECONNECTING · BATTLE HELD"}</div>}
+      {online && <div className={`multiplayer-status multiplayer-status--${connection}`} role="status"><i />{connection === "connected" ? `LIVE ${(onlineMode ?? snapshot?.mode ?? "1v1").toUpperCase()} · ${commanderLabel(localCommander).toUpperCase()} · ${roomCode}` : "RECONNECTING · BATTLE HELD"}</div>}
       <section className="battlefield-stage">
         <GameCanvas
           state={game}
-          localTeam={localTeam}
+          localCommander={localCommander}
           selected={selected}
           selectedBuildingId={selectedBuildingId}
           onPlace={(kind, gridX, gridY) => {
             if (online) sendCommand({ action: "place_building", kind, gridX, gridY });
-            else setGame((current) => placeBuilding(current, localTeam, kind, gridX, gridY));
+            else setGame((current) => placeBuilding(current, localCommander, kind, gridX, gridY));
           }}
           onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelected(null); }}
           onCancelSelection={() => { setSelected(null); setSelectedBuildingId(null); }}
           onHoverMessage={setHoverMessage}
         />
         <div className={`resource-panel resource-panel--${localTeam} is-local`}>
-          <span>YOUR RESERVES · +{incomeFor(game, localTeam)} IN {Math.max(1, Math.ceil(game.incomeClock))}S</span>
+          <span>YOUR RESERVES · +{incomeForCommander(game, localCommander)} IN {Math.max(1, Math.ceil(game.incomeClock))}S</span>
           <div><b>◆ {Math.floor(localResources.marks)}</b><b>▰ {Math.floor(localResources.timber)}</b><b>✦ {localResources.sigils}</b></div>
-          <small>MARKS · TIMBER · SIGILS</small>
+          <small>{commanderLabel(localCommander).toUpperCase()} · {FACTIONS[game.factions[localCommander]].name.toUpperCase()}{ally ? ` · ALLY ${FACTIONS[game.factions[ally]].name.toUpperCase()}` : ""}</small>
         </div>
-        <div className={`resource-panel resource-panel--${rivalTeam} is-rival`}><span>RIVAL MUSTER</span><b>{buildingCount(game, rivalTeam)} WORKS · {unitCount(game, rivalTeam)} AFIELD</b><small>{game.syncEnabled[rivalTeam] ? "Coordinating synchronized waves" : FACTIONS[game.factions[rivalTeam]].passive}</small></div>
+        <div className={`resource-panel resource-panel--${rivalTeam} is-rival`}><span>{game.matchMode === "2v2" ? "RIVAL TEAM MUSTER" : "RIVAL MUSTER"}</span><b>{buildingCount(game, rivalTeam)} WORKS · {unitCount(game, rivalTeam)} AFIELD</b><small>{teamDisplayName(game, rivalTeam)} · +{incomeFor(game, rivalTeam)} recurring Marks</small></div>
         <div className={`event-ribbon${hoverMessage && selected ? " is-placement" : ""}`} role="status" aria-live="polite"><i /><span>{hoverMessage && selected ? hoverMessage : game.event}</span>{selectedDescription && <small>{selectedDescription}</small>}</div>
-        {tutorial && game.status === "playing" && <TutorialCard game={game} localTeam={localTeam} selected={selected} onDismiss={() => setTutorial(false)} />}
+        {tutorial && game.status === "playing" && <TutorialCard game={game} localCommander={localCommander} selected={selected} onDismiss={() => setTutorial(false)} />}
       </section>
       <CommandDeck
         game={game}
-        localTeam={localTeam}
+        localCommander={localCommander}
         tab={tab}
         selected={selected}
         inspected={inspected}
         onTab={(nextTab) => { setTab(nextTab); setSelected(null); setSelectedBuildingId(null); }}
         onSelect={(kind) => { setSelected((current) => current === kind ? null : kind); setSelectedBuildingId(null); }}
-        onBuy={(item) => online ? sendCommand({ action: "buy_item", item }) : setGame((current) => buyShopItem(current, localTeam, item))}
-        onReprieve={() => online ? sendCommand({ action: "cast_reprieve" }) : setGame((current) => castReprieve(current, localTeam))}
-        onSync={() => online ? sendCommand({ action: "toggle_sync" }) : setGame((current) => toggleSynchronization(current, localTeam))}
-        onUpgrade={() => inspected && (online ? sendCommand({ action: "upgrade_building", buildingId: inspected.id }) : setGame((current) => upgradeBuilding(current, localTeam, inspected.id)))}
-        onToggleProduction={() => inspected && (online ? sendCommand({ action: "toggle_production", buildingId: inspected.id }) : setGame((current) => toggleProduction(current, localTeam, inspected.id)))}
+        onBuy={(item) => online ? sendCommand({ action: "buy_item", item }) : setGame((current) => buyShopItem(current, localCommander, item))}
+        onReprieve={() => online ? sendCommand({ action: "cast_reprieve" }) : setGame((current) => castReprieve(current, localCommander))}
+        onSync={() => online ? sendCommand({ action: "toggle_sync" }) : setGame((current) => toggleSynchronization(current, localCommander))}
+        onUpgrade={() => inspected && (online ? sendCommand({ action: "upgrade_building", buildingId: inspected.id }) : setGame((current) => upgradeBuilding(current, localCommander, inspected.id)))}
+        onToggleProduction={() => inspected && (online ? sendCommand({ action: "toggle_production", buildingId: inspected.id }) : setGame((current) => toggleProduction(current, localCommander, inspected.id)))}
         onCloseInspector={() => setSelectedBuildingId(null)}
       />
 
       {overlay === "rules" && <RulesModal onClose={() => setOverlay(null)} />}
       {overlay === "pause" && <div className="modal-backdrop"><section className="pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-heading"><span className="eyebrow">{online ? "LIVE MATCH MENU" : "LEDGER PAUSED"}</span><h2 id="pause-heading">{online ? "The room remains live." : "The march is holding."}</h2><p>{online ? "Online battles continue while this panel is open. Your rival remains connected and the server keeps the ledger." : "No cohorts move and no income ticks while this panel is open."}</p><button className="primary-button" onClick={() => setOverlay(null)}>Return to battle <span>→</span></button><button className="secondary-button" onClick={() => setOverlay("rules")}>Open field guide</button><button className="text-button" onClick={() => setOverlay("leave")}>Leave this match</button></section></div>}
       {overlay === "leave" && <div className="modal-backdrop"><section className="pause-modal" role="dialog" aria-modal="true" aria-labelledby="leave-heading"><span className="eyebrow">ABANDON MATCH?</span><h2 id="leave-heading">{online ? "Your rival can claim the field." : "This ledger cannot be recovered."}</h2><p>{online ? "Leaving disconnects your seat. You have a short grace period to return before the match is forfeited." : "Return to the title screen and end this skirmish."}</p><div className="confirm-actions"><button className="primary-button" onClick={goToTitle}>Return to title</button><button className="secondary-button" onClick={() => setOverlay(null)}>Keep playing</button></div></section></div>}
-      {game.status !== "playing" && <ResultModal game={game} localTeam={localTeam} onlineSnapshot={online ? snapshot : null} answer={feedback} copied={copied} onAnswer={setFeedback} onCopy={async () => { try { await navigator.clipboard.writeText(matchReport(game, feedback)); setCopied(true); } catch { setCopied(false); } }} onContinue={continueMatch} onRestart={online ? () => { setFeedback(""); setCopied(false); setOnlineReady(true); } : beginMatch} onTitle={goToTitle} />}
+      {game.status !== "playing" && <ResultModal game={game} localCommander={localCommander} onlineSnapshot={online ? snapshot : null} answer={feedback} copied={copied} onAnswer={setFeedback} onCopy={async () => { try { await navigator.clipboard.writeText(matchReport(game, feedback)); setCopied(true); } catch { setCopied(false); } }} onContinue={continueMatch} onRestart={online ? () => { setFeedback(""); setCopied(false); setOnlineReady(true); } : beginMatch} onTitle={goToTitle} />}
     </main>
   );
 }

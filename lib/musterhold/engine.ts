@@ -49,7 +49,21 @@ export const INCOME_INTERVAL = 7;
 export const ROUNDS_TO_WIN = 2;
 
 export type Team = "player" | "enemy";
+export type CommanderId = Team | "player_ally" | "enemy_ally";
+export type MatchMode = "solo" | "1v1" | "2v2";
+export type CommanderRecord<T> = Record<CommanderId, T>;
 export type MatchStatus = "playing" | "round_won" | "round_lost" | "won" | "lost";
+
+export const COMMANDER_IDS: readonly CommanderId[] = ["player", "player_ally", "enemy", "enemy_ally"];
+
+export function teamForCommander(commander: CommanderId): Team {
+  return commander === "player" || commander === "player_ally" ? "player" : "enemy";
+}
+
+export function commanderLabel(commander: CommanderId): string {
+  const side = teamForCommander(commander) === "player" ? "West" : "East";
+  return `${side} ${commander.endsWith("_ally") ? "South" : "North"}`;
+}
 
 export interface Point { x: number; y: number }
 export interface GridPoint { x: number; y: number }
@@ -64,6 +78,7 @@ export interface ResourceStock {
 export interface Building {
   id: number;
   team: Team;
+  commander?: CommanderId;
   kind: BuildingKind;
   gridX: number;
   gridY: number;
@@ -74,12 +89,13 @@ export interface Building {
   abilityClock: number;
   productionPaused: boolean;
   totalSpawned: number;
-  lastDamagedBy?: Team;
+  lastDamagedBy?: CommanderId;
 }
 
 export interface Unit {
   id: number;
   team: Team;
+  commander?: CommanderId;
   kind: UnitKind;
   level: 1 | 2 | 3;
   x: number;
@@ -93,10 +109,10 @@ export interface Unit {
   pathIndex: number;
   poisonTimer: number;
   poisonDps: number;
-  poisonTeam?: Team;
+  poisonTeam?: CommanderId;
   slowTimer: number;
   stunTimer: number;
-  lastDamagedBy?: Team;
+  lastDamagedBy?: CommanderId;
 }
 
 export type EffectType = "hit" | "spawn" | "destroy" | "reprieve" | "yield" | "shield" | "heal" | "pulse" | "upgrade" | "item";
@@ -114,25 +130,27 @@ export interface Effect {
 }
 
 export interface MatchStats {
-  buildingsPlaced: Record<Team, number>;
-  buildingsLost: Record<Team, number>;
-  unitsSpawned: Record<Team, number>;
-  unitsLost: Record<Team, number>;
-  keepDamage: Record<Team, number>;
-  upgrades: Record<Team, number>;
-  itemsBought: Record<Team, number>;
-  bountyEarned: Record<Team, number>;
+  buildingsPlaced: CommanderRecord<number>;
+  buildingsLost: CommanderRecord<number>;
+  unitsSpawned: CommanderRecord<number>;
+  unitsLost: CommanderRecord<number>;
+  keepDamage: CommanderRecord<number>;
+  upgrades: CommanderRecord<number>;
+  itemsBought: CommanderRecord<number>;
+  bountyEarned: CommanderRecord<number>;
 }
 
 export interface GameState {
+  matchMode: MatchMode;
+  activeCommanders: CommanderId[];
   status: MatchStatus;
   started: boolean;
   elapsed: number;
   totalElapsed: number;
   round: number;
   roundWins: Record<Team, number>;
-  factions: Record<Team, FactionId>;
-  resources: Record<Team, ResourceStock>;
+  factions: CommanderRecord<FactionId>;
+  resources: CommanderRecord<ResourceStock>;
   keeps: Record<Team, number>;
   buildings: Building[];
   units: Unit[];
@@ -140,11 +158,11 @@ export interface GameState {
   incomeClock: number;
   aiClock: number;
   keepDefenseClock: number;
-  syncEnabled: Record<Team, boolean>;
-  syncClock: Record<Team, number>;
-  reprieveUsed: Record<Team, boolean>;
-  rallyHorn: Record<Team, boolean>;
-  keepArmorUntil: Record<Team, number>;
+  syncEnabled: CommanderRecord<boolean>;
+  syncClock: CommanderRecord<number>;
+  reprieveUsed: CommanderRecord<boolean>;
+  rallyHorn: CommanderRecord<boolean>;
+  keepArmorUntil: CommanderRecord<number>;
   nextId: number;
   event: string;
   eventSerial: number;
@@ -171,6 +189,12 @@ export const BUILD_AREAS: Record<Team, readonly GridRect[]> = {
     { minX: 80, maxX: 90, minY: 16, maxY: 23 },
   ],
 };
+
+export function buildAreasForCommander(state: Pick<GameState, "matchMode">, commander: CommanderId): readonly GridRect[] {
+  const team = teamForCommander(commander);
+  if (state.matchMode !== "2v2") return BUILD_AREAS[team];
+  return [BUILD_AREAS[team][commander.endsWith("_ally") ? 1 : 0]];
+}
 
 export const BUILD_ZONES: Record<Team, GridRect> = {
   player: { minX: 9, maxX: 19, minY: 4, maxY: 23 },
@@ -209,20 +233,40 @@ const LANE_PATH: Point[] = [
 const STARTING_RESOURCES: ResourceStock = { marks: 520, timber: 70, sigils: 1 };
 const RESOURCE_KEYS: Array<keyof ResourceStock> = ["marks", "timber", "sigils"];
 
+function commanderRecord<T>(factory: (commander: CommanderId) => T): CommanderRecord<T> {
+  return Object.fromEntries(COMMANDER_IDS.map((commander) => [commander, factory(commander)])) as CommanderRecord<T>;
+}
+
+export function activeCommandersFor(state: Pick<GameState, "activeCommanders">): CommanderId[] {
+  return state.activeCommanders?.length ? state.activeCommanders : ["player", "enemy"];
+}
+
+export function commanderForBuilding(building: Pick<Building, "team" | "commander">): CommanderId {
+  return building.commander ?? building.team;
+}
+
+export function commanderForUnit(unit: Pick<Unit, "team" | "commander">): CommanderId {
+  return unit.commander ?? unit.team;
+}
+
+export function commandersForTeam(state: Pick<GameState, "activeCommanders">, team: Team): CommanderId[] {
+  return activeCommandersFor(state).filter((commander) => teamForCommander(commander) === team);
+}
+
 function enemyOf(team: Team): Team {
   return team === "player" ? "enemy" : "player";
 }
 
 function emptyStats(): MatchStats {
   return {
-    buildingsPlaced: { player: 0, enemy: 0 },
-    buildingsLost: { player: 0, enemy: 0 },
-    unitsSpawned: { player: 0, enemy: 0 },
-    unitsLost: { player: 0, enemy: 0 },
-    keepDamage: { player: 0, enemy: 0 },
-    upgrades: { player: 0, enemy: 0 },
-    itemsBought: { player: 0, enemy: 0 },
-    bountyEarned: { player: 0, enemy: 0 },
+    buildingsPlaced: commanderRecord(() => 0),
+    buildingsLost: commanderRecord(() => 0),
+    unitsSpawned: commanderRecord(() => 0),
+    unitsLost: commanderRecord(() => 0),
+    keepDamage: commanderRecord(() => 0),
+    upgrades: commanderRecord(() => 0),
+    itemsBought: commanderRecord(() => 0),
+    bountyEarned: commanderRecord(() => 0),
   };
 }
 
@@ -231,19 +275,25 @@ function chooseEnemyFaction(playerFaction: FactionId): FactionId {
   return FACTION_IDS[(index + 1) % FACTION_IDS.length];
 }
 
-export function createInitialState(playerFaction: FactionId = "daybreak", enemyFaction: FactionId = chooseEnemyFaction(playerFaction)): GameState {
+function createGameState(matchMode: MatchMode, chosenFactions: Partial<CommanderRecord<FactionId>>): GameState {
+  const playerFaction = chosenFactions.player ?? "daybreak";
+  const enemyFaction = chosenFactions.enemy ?? chooseEnemyFaction(playerFaction);
+  const factions = commanderRecord((commander) => chosenFactions[commander]
+    ?? (teamForCommander(commander) === "player" ? playerFaction : enemyFaction));
+  const activeCommanders: CommanderId[] = matchMode === "2v2"
+    ? ["player", "player_ally", "enemy", "enemy_ally"]
+    : ["player", "enemy"];
   return {
+    matchMode,
+    activeCommanders,
     status: "playing",
     started: false,
     elapsed: 0,
     totalElapsed: 0,
     round: 1,
     roundWins: { player: 0, enemy: 0 },
-    factions: { player: playerFaction, enemy: enemyFaction },
-    resources: {
-      player: { ...STARTING_RESOURCES },
-      enemy: { ...STARTING_RESOURCES },
-    },
+    factions,
+    resources: commanderRecord(() => ({ ...STARTING_RESOURCES })),
     keeps: { player: KEEP_MAX_HP, enemy: KEEP_MAX_HP },
     buildings: [],
     units: [],
@@ -251,11 +301,11 @@ export function createInitialState(playerFaction: FactionId = "daybreak", enemyF
     incomeClock: INCOME_INTERVAL,
     aiClock: 3.2,
     keepDefenseClock: 1.15,
-    syncEnabled: { player: false, enemy: false },
-    syncClock: { player: 12, enemy: 12 },
-    reprieveUsed: { player: false, enemy: false },
-    rallyHorn: { player: false, enemy: false },
-    keepArmorUntil: { player: 0, enemy: 0 },
+    syncEnabled: commanderRecord(() => false),
+    syncClock: commanderRecord(() => 12),
+    reprieveUsed: commanderRecord(() => false),
+    rallyHorn: commanderRecord(() => false),
+    keepArmorUntil: commanderRecord(() => 0),
     nextId: 1,
     event: "Choose a structure, then place it inside your construction yard.",
     eventSerial: 1,
@@ -263,19 +313,28 @@ export function createInitialState(playerFaction: FactionId = "daybreak", enemyF
   };
 }
 
+export function createInitialState(playerFaction: FactionId = "daybreak", enemyFaction: FactionId = chooseEnemyFaction(playerFaction)): GameState {
+  return createGameState("solo", { player: playerFaction, enemy: enemyFaction });
+}
+
+export function createMultiplayerState(mode: "1v1" | "2v2", factions: Partial<CommanderRecord<FactionId>>): GameState {
+  return createGameState(mode, factions);
+}
+
 export function startNextRound(state: GameState): GameState {
   if (state.status !== "round_won" && state.status !== "round_lost") return state;
-  const comebackMarks = state.status === "round_lost" ? 60 : 0;
+  const losingTeam: Team = state.status === "round_lost" ? "player" : "enemy";
   return {
     ...state,
     status: "playing",
     started: false,
     elapsed: 0,
     round: state.round + 1,
-    resources: {
-      player: { marks: STARTING_RESOURCES.marks + comebackMarks, timber: STARTING_RESOURCES.timber, sigils: 1 },
-      enemy: { ...STARTING_RESOURCES },
-    },
+    resources: commanderRecord((commander) => ({
+      marks: STARTING_RESOURCES.marks + (teamForCommander(commander) === losingTeam ? 60 : 0),
+      timber: STARTING_RESOURCES.timber,
+      sigils: STARTING_RESOURCES.sigils,
+    })),
     keeps: { player: KEEP_MAX_HP, enemy: KEEP_MAX_HP },
     buildings: [],
     units: [],
@@ -283,11 +342,11 @@ export function startNextRound(state: GameState): GameState {
     incomeClock: INCOME_INTERVAL,
     aiClock: 3.2,
     keepDefenseClock: 1.15,
-    syncEnabled: { player: false, enemy: false },
-    syncClock: { player: 12, enemy: 12 },
-    reprieveUsed: { player: false, enemy: false },
-    rallyHorn: { player: false, enemy: false },
-    keepArmorUntil: { player: 0, enemy: 0 },
+    syncEnabled: commanderRecord(() => false),
+    syncClock: commanderRecord(() => 12),
+    reprieveUsed: commanderRecord(() => false),
+    rallyHorn: commanderRecord(() => false),
+    keepArmorUntil: commanderRecord(() => 0),
     event: `Round ${state.round + 1}. Rebuild your muster and adapt to the rival's last formation.`,
     eventSerial: state.eventSerial + 1,
   };
@@ -301,14 +360,26 @@ export function buildingCount(state: GameState, team: Team, kind?: BuildingKind)
   return state.buildings.filter((building) => building.team === team && (!kind || building.kind === kind)).length;
 }
 
+export function commanderBuildingCount(state: GameState, commander: CommanderId, kind?: BuildingKind): number {
+  return state.buildings.filter((building) => commanderForBuilding(building) === commander && (!kind || building.kind === kind)).length;
+}
+
 export function unitCount(state: GameState, team: Team): number {
   return state.units.filter((unit) => unit.team === team).length;
 }
 
-export function incomeFor(state: GameState, team: Team): number {
+export function commanderUnitCount(state: GameState, commander: CommanderId): number {
+  return state.units.filter((unit) => commanderForUnit(unit) === commander).length;
+}
+
+export function incomeForCommander(state: GameState, commander: CommanderId): number {
   return 45 + state.buildings
-    .filter((building) => building.team === team)
+    .filter((building) => commanderForBuilding(building) === commander)
     .reduce((total, building) => total + Math.round(BUILDING_SPECS[building.kind].yieldBonus * (1 + (building.level - 1) * 0.35)), 0);
+}
+
+export function incomeFor(state: GameState, team: Team): number {
+  return commandersForTeam(state, team).reduce((total, commander) => total + incomeForCommander(state, commander), 0);
 }
 
 export const yieldFor = incomeFor;
@@ -339,8 +410,8 @@ export function damageMultiplier(attacker: UnitKind, defender: UnitKind): number
   return damageAgainstArmor(UNIT_SPECS[attacker].damageType, UNIT_SPECS[defender].armorType);
 }
 
-export function reprieveReady(state: GameState, team: Team): boolean {
-  return state.status === "playing" && state.elapsed >= REPRIEVE_READY_AT && !state.reprieveUsed[team];
+export function reprieveReady(state: GameState, commander: CommanderId): boolean {
+  return state.status === "playing" && state.elapsed >= REPRIEVE_READY_AT && !state.reprieveUsed[commander];
 }
 
 function gridKey(point: GridPoint): string {
@@ -436,14 +507,15 @@ function findBuildingExitPath(
   return null;
 }
 
-export function validatePlacement(state: GameState, team: Team, kind: BuildingKind, gridX: number, gridY: number): PlacementValidation {
+export function validatePlacement(state: GameState, commander: CommanderId, kind: BuildingKind, gridX: number, gridY: number): PlacementValidation {
+  const team = teamForCommander(commander);
   const spec = BUILDING_SPECS[kind];
   if (state.status !== "playing") return { valid: false, reason: "The round is over." };
-  if (spec.faction !== state.factions[team]) return { valid: false, reason: "That structure belongs to another faction." };
-  if (!canAfford(state.resources[team], spec.cost)) return { valid: false, reason: "You cannot afford that Marks, Timber, or Sigil cost." };
-  if (buildingCount(state, team) >= BUILDING_CAP) return { valid: false, reason: "Your construction yard is full." };
+  if (spec.faction !== state.factions[commander]) return { valid: false, reason: "That structure belongs to another faction." };
+  if (!canAfford(state.resources[commander], spec.cost)) return { valid: false, reason: "You cannot afford that Marks, Timber, or Sigil cost." };
+  if (commanderBuildingCount(state, commander) >= BUILDING_CAP) return { valid: false, reason: "Your construction yard is full." };
 
-  const insideBuildArea = BUILD_AREAS[team].some((area) => (
+  const insideBuildArea = buildAreasForCommander(state, commander).some((area) => (
     gridX >= area.minX
     && gridY >= area.minY
     && gridX + spec.width - 1 <= area.maxX
@@ -454,6 +526,7 @@ export function validatePlacement(state: GameState, team: Team, kind: BuildingKi
   const candidate: Building = {
     id: -1,
     team,
+    commander,
     kind,
     gridX,
     gridY,
@@ -488,13 +561,15 @@ function withEvent(state: GameState, event: string): GameState {
   return { ...state, event, eventSerial: state.eventSerial + 1 };
 }
 
-export function placeBuilding(state: GameState, team: Team, kind: BuildingKind, gridX: number, gridY: number): GameState {
-  const validation = validatePlacement(state, team, kind, gridX, gridY);
+export function placeBuilding(state: GameState, commander: CommanderId, kind: BuildingKind, gridX: number, gridY: number): GameState {
+  const team = teamForCommander(commander);
+  const validation = validatePlacement(state, commander, kind, gridX, gridY);
   if (!validation.valid) return team === "player" ? withEvent(state, validation.reason) : state;
   const spec = BUILDING_SPECS[kind];
   const building: Building = {
     id: state.nextId,
     team,
+    commander,
     kind,
     gridX,
     gridY,
@@ -506,17 +581,17 @@ export function placeBuilding(state: GameState, team: Team, kind: BuildingKind, 
     productionPaused: false,
     totalSpawned: 0,
   };
-  const resources = spend(state.resources[team], spec.cost);
+  const resources = spend(state.resources[commander], spec.cost);
   resources.timber += spec.timberGain;
   const next: GameState = {
     ...state,
     started: true,
-    resources: { ...state.resources, [team]: resources },
+    resources: { ...state.resources, [commander]: resources },
     buildings: [...state.buildings, building],
     nextId: state.nextId + 1,
     stats: {
       ...state.stats,
-      buildingsPlaced: { ...state.stats.buildingsPlaced, [team]: state.stats.buildingsPlaced[team] + 1 },
+      buildingsPlaced: { ...state.stats.buildingsPlaced, [commander]: state.stats.buildingsPlaced[commander] + 1 },
     },
   };
   if (team === "enemy") return next;
@@ -525,21 +600,22 @@ export function placeBuilding(state: GameState, team: Team, kind: BuildingKind, 
   return withEvent(next, `${spec.name} placed at ${gridX}, ${gridY}. ${actionText}${timberText}`);
 }
 
-export function upgradeBuilding(state: GameState, team: Team, buildingId: number): GameState {
-  const building = state.buildings.find((candidate) => candidate.id === buildingId && candidate.team === team);
+export function upgradeBuilding(state: GameState, commander: CommanderId, buildingId: number): GameState {
+  const team = teamForCommander(commander);
+  const building = state.buildings.find((candidate) => candidate.id === buildingId && commanderForBuilding(candidate) === commander);
   if (!building) return state;
   const cost = costForUpgrade(building);
   if (!cost) return team === "player" ? withEvent(state, "That structure has already reached legendary rank.") : state;
-  if (!canAfford(state.resources[team], cost)) return team === "player" ? withEvent(state, "The upgrade needs more Marks, Timber, or a Sigil.") : state;
+  if (!canAfford(state.resources[commander], cost)) return team === "player" ? withEvent(state, "The upgrade needs more Marks, Timber, or a Sigil.") : state;
   const nextLevel = (building.level + 1) as 2 | 3;
   const hpScale = nextLevel === 2 ? 1.28 : 1.68;
   const nextMaxHp = Math.round(BUILDING_SPECS[building.kind].maxHp * hpScale);
   const hpGain = nextMaxHp - building.maxHp;
-  const resources = spend(state.resources[team], cost);
+  const resources = spend(state.resources[commander], cost);
   const center = buildingCenter(building);
   const next: GameState = {
     ...state,
-    resources: { ...state.resources, [team]: resources },
+    resources: { ...state.resources, [commander]: resources },
     buildings: state.buildings.map((candidate) => candidate.id === buildingId ? {
       ...candidate,
       level: nextLevel,
@@ -549,13 +625,14 @@ export function upgradeBuilding(state: GameState, team: Team, buildingId: number
     } : candidate),
     effects: [...state.effects, { id: state.nextId, type: "upgrade", x: center.x, y: center.y, life: 1.2, team, label: nextLevel === 3 ? "LEGENDARY" : "VETERAN" }],
     nextId: state.nextId + 1,
-    stats: { ...state.stats, upgrades: { ...state.stats.upgrades, [team]: state.stats.upgrades[team] + 1 } },
+    stats: { ...state.stats, upgrades: { ...state.stats.upgrades, [commander]: state.stats.upgrades[commander] + 1 } },
   };
   return team === "player" ? withEvent(next, `${BUILDING_SPECS[building.kind].name} is now ${nextLevel === 3 ? "Legendary" : "Veteran"}.`) : next;
 }
 
-export function toggleProduction(state: GameState, team: Team, buildingId: number): GameState {
-  const building = state.buildings.find((candidate) => candidate.id === buildingId && candidate.team === team);
+export function toggleProduction(state: GameState, commander: CommanderId, buildingId: number): GameState {
+  const team = teamForCommander(commander);
+  const building = state.buildings.find((candidate) => candidate.id === buildingId && commanderForBuilding(candidate) === commander);
   if (!building || !BUILDING_SPECS[building.kind].unitKind) return state;
   const paused = !building.productionPaused;
   const next = {
@@ -565,60 +642,62 @@ export function toggleProduction(state: GameState, team: Team, buildingId: numbe
   return team === "player" ? withEvent(next, `${BUILDING_SPECS[building.kind].name} production ${paused ? "held for manual synchronization" : "resumed"}.`) : next;
 }
 
-export function toggleSynchronization(state: GameState, team: Team): GameState {
+export function toggleSynchronization(state: GameState, commander: CommanderId): GameState {
+  const team = teamForCommander(commander);
   if (state.status !== "playing") return state;
-  const enabled = !state.syncEnabled[team];
-  const production = state.buildings.filter((building) => building.team === team && BUILDING_SPECS[building.kind].unitKind && !building.productionPaused);
+  const enabled = !state.syncEnabled[commander];
+  const production = state.buildings.filter((building) => commanderForBuilding(building) === commander && BUILDING_SPECS[building.kind].unitKind && !building.productionPaused);
   const longest = Math.max(4, ...production.map((building) => productionPeriod(building, state)));
   const next = {
     ...state,
-    syncEnabled: { ...state.syncEnabled, [team]: enabled },
-    syncClock: { ...state.syncClock, [team]: enabled ? Math.min(state.syncClock[team], longest) : longest },
+    syncEnabled: { ...state.syncEnabled, [commander]: enabled },
+    syncClock: { ...state.syncClock, [commander]: enabled ? Math.min(state.syncClock[commander], longest) : longest },
   };
   return team === "player" ? withEvent(next, enabled
     ? "Rally Sync enabled. Active Foundries will deploy together at the slowest cadence."
     : "Rally Sync disabled. Each Foundry has returned to its own cadence.") : next;
 }
 
-export function buyShopItem(state: GameState, team: Team, item: ShopItemKind): GameState {
+export function buyShopItem(state: GameState, commander: CommanderId, item: ShopItemKind): GameState {
+  const team = teamForCommander(commander);
   if (state.status !== "playing") return state;
   const spec = SHOP_ITEMS[item];
-  if (item === "rally_horn" && state.rallyHorn[team]) return team === "player" ? withEvent(state, "Your Rally Horn is already sounding.") : state;
-  if (!canAfford(state.resources[team], spec.cost)) return team === "player" ? withEvent(state, "That commission needs more Marks or Timber.") : state;
+  if (item === "rally_horn" && state.rallyHorn[commander]) return team === "player" ? withEvent(state, "Your Rally Horn is already sounding.") : state;
+  if (!canAfford(state.resources[commander], spec.cost)) return team === "player" ? withEvent(state, "That commission needs more Marks or Timber.") : state;
 
-  let resources = spend(state.resources[team], spec.cost);
+  let resources = spend(state.resources[commander], spec.cost);
   const keeps = { ...state.keeps };
   let units = state.units.map((unit) => ({ ...unit }));
   let buildings = state.buildings.map((building) => ({ ...building }));
   const rallyHorn = { ...state.rallyHorn };
   const keepArmorUntil = { ...state.keepArmorUntil };
 
-  if (item === "rally_horn") rallyHorn[team] = true;
+  if (item === "rally_horn") rallyHorn[commander] = true;
   if (item === "ember_flask") {
-    units = units.map((unit) => unit.team !== team && onTeamHalf(unit.x, team) ? { ...unit, hp: unit.hp - 150, lastDamagedBy: team } : unit);
+    units = units.map((unit) => unit.team !== team && onTeamHalf(unit.x, team) ? { ...unit, hp: unit.hp - 150, lastDamagedBy: commander } : unit);
   }
   if (item === "iron_writ") {
     keeps[team] = Math.min(KEEP_MAX_HP, keeps[team] + 260);
-    keepArmorUntil[team] = state.elapsed + 25;
+    keepArmorUntil[commander] = state.elapsed + 25;
   }
   if (item === "tempo_bell") {
-    buildings = buildings.map((building) => building.team === team && BUILDING_SPECS[building.kind].unitKind && !building.productionPaused ? { ...building, spawnClock: 0 } : building);
+    buildings = buildings.map((building) => commanderForBuilding(building) === commander && BUILDING_SPECS[building.kind].unitKind && !building.productionPaused ? { ...building, spawnClock: 0 } : building);
   }
   if (item === "sigil_shard") resources = { ...resources, sigils: resources.sigils + 1 };
 
   const keep = KEEP_POSITIONS[team];
   const next: GameState = {
     ...state,
-    resources: { ...state.resources, [team]: resources },
+    resources: { ...state.resources, [commander]: resources },
     keeps,
     units,
     buildings,
     rallyHorn,
     keepArmorUntil,
-    syncClock: item === "tempo_bell" ? { ...state.syncClock, [team]: 0 } : state.syncClock,
+    syncClock: item === "tempo_bell" ? { ...state.syncClock, [commander]: 0 } : state.syncClock,
     effects: [...state.effects, { id: state.nextId, type: "item", x: keep.x, y: keep.y, life: 1.2, team, label: spec.name.toUpperCase() }],
     nextId: state.nextId + 1,
-    stats: { ...state.stats, itemsBought: { ...state.stats.itemsBought, [team]: state.stats.itemsBought[team] + 1 } },
+    stats: { ...state.stats, itemsBought: { ...state.stats.itemsBought, [commander]: state.stats.itemsBought[commander] + 1 } },
   };
   const cleaned = collectDefeated(next);
   return team === "player" ? withEvent(cleaned, `${spec.name} commissioned. ${spec.description}`) : cleaned;
@@ -642,12 +721,12 @@ function unitScale(level: 1 | 2 | 3): number {
 function productionPeriod(building: Building, state: GameState): number {
   const base = BUILDING_SPECS[building.kind].spawnEvery ?? 12;
   const levelFactor = building.level === 1 ? 1 : building.level === 2 ? 0.88 : 0.76;
-  const factionFactor = state.factions[building.team] === "stormglass" ? 0.92 : 1;
+  const factionFactor = state.factions[commanderForBuilding(building)] === "stormglass" ? 0.92 : 1;
   return base * levelFactor * factionFactor;
 }
 
 function spawnUnit(state: GameState, building: Building): GameState {
-  if (state.units.length >= UNIT_CAP) return state;
+  if (state.units.length >= UNIT_CAP * (state.matchMode === "2v2" ? 2 : 1)) return state;
   const kind = BUILDING_SPECS[building.kind].unitKind;
   if (!kind) return state;
   const spec = UNIT_SPECS[kind];
@@ -658,6 +737,7 @@ function spawnUnit(state: GameState, building: Building): GameState {
   const unit: Unit = {
     id: state.nextId,
     team: building.team,
+    commander: commanderForBuilding(building),
     kind,
     level: building.level,
     x: start.x,
@@ -680,7 +760,13 @@ function spawnUnit(state: GameState, building: Building): GameState {
     units: [...state.units, unit],
     effects: [...state.effects, { id: state.nextId + 1, type: "spawn", x: start.x, y: start.y, life: 0.75, team: building.team, label: building.level === 3 ? "LEGENDARY" : undefined }],
     nextId: state.nextId + 2,
-    stats: { ...state.stats, unitsSpawned: { ...state.stats.unitsSpawned, [building.team]: state.stats.unitsSpawned[building.team] + 1 } },
+    stats: {
+      ...state.stats,
+      unitsSpawned: {
+        ...state.stats.unitsSpawned,
+        [commanderForBuilding(building)]: (state.stats.unitsSpawned[commanderForBuilding(building)] ?? 0) + 1,
+      },
+    },
   };
 }
 
@@ -738,7 +824,7 @@ function nearbyFormationResistance(target: Unit, units: Unit[]): number {
   return units.some((unit) => unit.id !== target.id && unit.team === target.team && unit.hp > 0 && distance(unit, target) <= 105) ? 0.9 : 1;
 }
 
-function dealUnitDamage(target: Unit, raw: number, damageType: DamageType, attackerTeam: Team, units: Unit[]): number {
+function dealUnitDamage(target: Unit, raw: number, damageType: DamageType, attackerCommander: CommanderId, units: Unit[]): number {
   let amount = raw * damageAgainstArmor(damageType, UNIT_SPECS[target.kind].armorType);
   if (UNIT_SPECS[target.kind].ability === "evasion") amount *= 1 - (UNIT_SPECS[target.kind].abilityPower ?? 0.18);
   if (UNIT_SPECS[target.kind].ability === "bulwark" && target.hp < target.maxHp * 0.5) amount *= 1 - (UNIT_SPECS[target.kind].abilityPower ?? 0.2);
@@ -749,13 +835,14 @@ function dealUnitDamage(target: Unit, raw: number, damageType: DamageType, attac
     amount -= absorbed;
   }
   target.hp -= amount;
-  target.lastDamagedBy = attackerTeam;
+  target.lastDamagedBy = attackerCommander;
   return amount;
 }
 
 function attackSpeed(unit: Unit, units: Unit[], state: GameState): number {
-  let speed = state.rallyHorn[unit.team] ? 1.12 : 1;
-  if (state.factions[unit.team] === "stormglass") speed *= 1.08;
+  const commander = commanderForUnit(unit);
+  let speed = state.rallyHorn[commander] ? 1.12 : 1;
+  if (state.factions[commander] === "stormglass") speed *= 1.08;
   const hasted = units.some((ally) => ally.team === unit.team && ally.hp > 0 && UNIT_SPECS[ally.kind].ability === "haste" && distance(ally, unit) <= (UNIT_SPECS[ally.kind].abilityRadius ?? 110));
   if (hasted) speed *= 1.16;
   return speed;
@@ -765,7 +852,7 @@ function simulateCombat(state: GameState, dt: number): GameState {
   const units = state.units.map((unit) => ({ ...unit }));
   const buildings = state.buildings.map((building) => ({ ...building }));
   const keeps = { ...state.keeps };
-  const resources = { player: { ...state.resources.player }, enemy: { ...state.resources.enemy } };
+  const resources = commanderRecord((commander) => ({ ...(state.resources[commander] ?? STARTING_RESOURCES) }));
   const effects = state.effects.map((effect) => ({ ...effect, life: effect.life - dt })).filter((effect) => effect.life > 0);
   const nextId = { value: state.nextId };
   const keepDamage = { ...state.stats.keepDamage };
@@ -779,7 +866,7 @@ function simulateCombat(state: GameState, dt: number): GameState {
       unit.hp -= unit.poisonDps * dt;
       if (unit.poisonTeam) unit.lastDamagedBy = unit.poisonTeam;
     }
-    if (state.factions[unit.team] === "briarcrown") unit.hp = Math.min(unit.maxHp, unit.hp + 2.2 * dt * unitScale(unit.level));
+    if (state.factions[commanderForUnit(unit)] === "briarcrown") unit.hp = Math.min(unit.maxHp, unit.hp + 2.2 * dt * unitScale(unit.level));
     if (UNIT_SPECS[unit.kind].ability === "regrowth") unit.hp = Math.min(unit.maxHp, unit.hp + (UNIT_SPECS[unit.kind].abilityPower ?? 5) * dt);
     unit.cooldown = Math.max(0, unit.cooldown - dt * attackSpeed(unit, units, state));
   }
@@ -794,24 +881,24 @@ function simulateCombat(state: GameState, dt: number): GameState {
     if (nearestUnit && nearestDistance <= spec.range) {
       if (unit.cooldown <= 0) {
         const baseDamage = spec.damage * unitScale(unit.level);
-        const dealt = dealUnitDamage(nearestUnit, baseDamage, spec.damageType, unit.team, units);
+        const dealt = dealUnitDamage(nearestUnit, baseDamage, spec.damageType, commanderForUnit(unit), units);
         unit.cooldown = spec.attackEvery;
         unit.attackFlash = 0.2;
         addEffect(effects, nextId, { type: "hit", x: unit.x, y: unit.y, x2: nearestUnit.x, y2: nearestUnit.y, life: 0.22, team: unit.team });
 
         if (spec.ability === "chain") {
           const chained = eligible.find((candidate) => candidate.id !== nearestUnit.id && distance(candidate, nearestUnit) <= (spec.abilityRadius ?? 90));
-          if (chained) dealUnitDamage(chained, baseDamage * (spec.abilityPower ?? 0.38), spec.damageType, unit.team, units);
+          if (chained) dealUnitDamage(chained, baseDamage * (spec.abilityPower ?? 0.38), spec.damageType, commanderForUnit(unit), units);
         }
         if (spec.ability === "splash") {
           for (const target of eligible) if (target.id !== nearestUnit.id && distance(target, nearestUnit) <= (spec.abilityRadius ?? 80)) {
-            dealUnitDamage(target, baseDamage * (spec.abilityPower ?? 0.4), spec.damageType, unit.team, units);
+            dealUnitDamage(target, baseDamage * (spec.abilityPower ?? 0.4), spec.damageType, commanderForUnit(unit), units);
           }
         }
         if (spec.ability === "poison") {
           nearestUnit.poisonTimer = 4;
           nearestUnit.poisonDps = (spec.abilityPower ?? 7) * unitScale(unit.level);
-          nearestUnit.poisonTeam = unit.team;
+          nearestUnit.poisonTeam = commanderForUnit(unit);
         }
         if (spec.ability === "slow") nearestUnit.slowTimer = 3.5;
         if (spec.ability === "stun" && (unit.id + nearestUnit.id + Math.floor(state.elapsed)) % 5 === 0) nearestUnit.stunTimer = 0.75;
@@ -820,7 +907,7 @@ function simulateCombat(state: GameState, dt: number): GameState {
       continue;
     }
 
-    const moveFactor = (unit.slowTimer > 0 ? 0.68 : 1) * (state.rallyHorn[unit.team] ? 1.12 : 1);
+    const moveFactor = (unit.slowTimer > 0 ? 0.68 : 1) * (state.rallyHorn[commanderForUnit(unit)] ? 1.12 : 1);
     if (nearestUnit && nearestDistance <= spec.range + 115) {
       moveToward(unit, nearestUnit, spec.speed * moveFactor * dt);
       continue;
@@ -840,7 +927,7 @@ function simulateCombat(state: GameState, dt: number): GameState {
         if (unit.cooldown <= 0) {
           const damage = spec.damage * unitScale(unit.level) * damageAgainstArmor(spec.damageType, "Fortified");
           nearestBuilding.hp -= damage;
-          nearestBuilding.lastDamagedBy = unit.team;
+          nearestBuilding.lastDamagedBy = commanderForUnit(unit);
           unit.cooldown = spec.attackEvery;
           unit.attackFlash = 0.2;
           addEffect(effects, nextId, { type: "hit", x: unit.x, y: unit.y, x2: center.x, y2: center.y, life: 0.22, team: unit.team });
@@ -854,9 +941,10 @@ function simulateCombat(state: GameState, dt: number): GameState {
     if (distance(unit, keep) <= spec.range + 74) {
       if (unit.cooldown <= 0) {
         let dealt = spec.damage * unitScale(unit.level) * damageAgainstArmor(spec.damageType, "Fortified") * 0.72;
-        if (state.keepArmorUntil[opposingTeam] > state.elapsed) dealt *= 0.65;
+        if (commandersForTeam(state, opposingTeam).some((commander) => state.keepArmorUntil[commander] > state.elapsed)) dealt *= 0.65;
         keeps[opposingTeam] -= dealt;
-        keepDamage[unit.team] += dealt;
+        const commander = commanderForUnit(unit);
+        keepDamage[commander] = (keepDamage[commander] ?? 0) + dealt;
         unit.cooldown = spec.attackEvery;
         unit.attackFlash = 0.2;
         addEffect(effects, nextId, { type: "hit", x: unit.x, y: unit.y, x2: keep.x, y2: keep.y, life: 0.24, team: unit.team });
@@ -882,7 +970,7 @@ function collectDefeated(state: GameState): GameState {
   const lostUnits = state.units.filter((unit) => unit.hp <= 0);
   if (!destroyedBuildings.length && !lostUnits.length) return state;
 
-  const resources = { player: { ...state.resources.player }, enemy: { ...state.resources.enemy } };
+  const resources = commanderRecord((commander) => ({ ...(state.resources[commander] ?? STARTING_RESOURCES) }));
   const bountyEarned = { ...state.stats.bountyEarned };
   const buildingsLost = { ...state.stats.buildingsLost };
   const unitsLost = { ...state.stats.unitsLost };
@@ -890,20 +978,22 @@ function collectDefeated(state: GameState): GameState {
   let nextId = state.nextId;
 
   for (const unit of lostUnits) {
-    unitsLost[unit.team] += 1;
+    const owner = commanderForUnit(unit);
+    unitsLost[owner] = (unitsLost[owner] ?? 0) + 1;
     if (unit.lastDamagedBy) {
       const bounty = UNIT_SPECS[unit.kind].bounty + (unit.level - 1) * 5;
       resources[unit.lastDamagedBy].marks += bounty;
-      bountyEarned[unit.lastDamagedBy] += bounty;
+      bountyEarned[unit.lastDamagedBy] = (bountyEarned[unit.lastDamagedBy] ?? 0) + bounty;
     }
     effects.push({ id: nextId++, type: "destroy", x: unit.x, y: unit.y, life: 0.85, team: unit.team });
   }
   for (const building of destroyedBuildings) {
-    buildingsLost[building.team] += 1;
+    const owner = commanderForBuilding(building);
+    buildingsLost[owner] = (buildingsLost[owner] ?? 0) + 1;
     if (building.lastDamagedBy) {
       const bounty = 35 + building.level * 15;
       resources[building.lastDamagedBy].marks += bounty;
-      bountyEarned[building.lastDamagedBy] += bounty;
+      bountyEarned[building.lastDamagedBy] = (bountyEarned[building.lastDamagedBy] ?? 0) + bounty;
     }
     const center = buildingCenter(building);
     effects.push({ id: nextId++, type: "destroy", x: center.x, y: center.y, life: 1.2, team: building.team });
@@ -944,7 +1034,7 @@ function applyStructureEffects(state: GameState): GameState {
     } else if (spec.effect === "tempest") {
       const targets = units.filter((unit) => unit.team !== building.team && distance(unit, center) <= 660).slice(0, 4 + building.level);
       for (const unit of targets) {
-        dealUnitDamage(unit, 50 * power, "Arc", building.team, units);
+        dealUnitDamage(unit, 50 * power, "Arc", commanderForBuilding(building), units);
         unit.slowTimer = Math.max(unit.slowTimer, 2.5);
       }
       effects.push({ id: nextId++, type: "pulse", x: center.x, y: center.y, life: 1, team: building.team, label: "STATIC PULSE" });
@@ -954,11 +1044,11 @@ function applyStructureEffects(state: GameState): GameState {
       const target = targets.sort((a, b) => distance(a, center) - distance(b, center))[0];
       if (target) {
         const damageType: DamageType = spec.faction === "briarcrown" ? "Arrow" : spec.faction === "stormglass" ? "Arc" : "Pure";
-        dealUnitDamage(target, 54 * power, damageType, building.team, units);
+        dealUnitDamage(target, 54 * power, damageType, commanderForBuilding(building), units);
         if (spec.faction === "briarcrown") {
           target.poisonTimer = 3;
           target.poisonDps = 5 * power;
-          target.poisonTeam = building.team;
+          target.poisonTeam = commanderForBuilding(building);
         }
         effects.push({ id: nextId++, type: "hit", x: center.x, y: center.y, x2: target.x, y2: target.y, life: 0.24, team: building.team });
       }
@@ -984,23 +1074,24 @@ function applyKeepDefense(state: GameState): GameState {
   return collectDefeated({ ...state, units, effects, nextId });
 }
 
-export function castReprieve(state: GameState, team: Team): GameState {
-  if (!reprieveReady(state, team)) return state;
+export function castReprieve(state: GameState, commander: CommanderId): GameState {
+  const team = teamForCommander(commander);
+  if (!reprieveReady(state, commander)) return state;
   const units = state.units.map((unit) => unit.team === team ? { ...unit } : {
     ...unit,
     hp: onTeamHalf(unit.x, team) ? 0 : unit.hp * 0.68,
-    lastDamagedBy: team,
+    lastDamagedBy: commander,
   });
   const keep = KEEP_POSITIONS[team];
   const next: GameState = {
     ...state,
     units,
-    reprieveUsed: { ...state.reprieveUsed, [team]: true },
+    reprieveUsed: { ...state.reprieveUsed, [commander]: true },
     effects: [...state.effects, { id: state.nextId, type: "reprieve", x: keep.x, y: keep.y, life: 1.5, team, label: "REPRIEVE" }],
     nextId: state.nextId + 1,
   };
   const cleaned = collectDefeated(next);
-  return withEvent(cleaned, `${FACTIONS[state.factions[team]].name} invoked Reprieve. Invaders on the ${team === "player" ? "western" : "eastern"} half were erased; the distant host was wounded.`);
+  return withEvent(cleaned, `${FACTIONS[state.factions[commander]].name} invoked Reprieve. Invaders on the ${team === "player" ? "western" : "eastern"} half were erased; the distant host was wounded.`);
 }
 
 function shouldBotCastReprieve(state: GameState): boolean {
@@ -1107,7 +1198,13 @@ function finishRound(state: GameState, winner: Team, reason: string): GameState 
   const status: MatchStatus = matchFinished
     ? (winner === "player" ? "won" : "lost")
     : (winner === "player" ? "round_won" : "round_lost");
-  return withEvent({ ...state, roundWins, status }, matchFinished ? `${reason} ${FACTIONS[state.factions[winner]].name} wins the match ${roundWins.player}–${roundWins.enemy}.` : `${reason} Round ${state.round} goes to ${FACTIONS[state.factions[winner]].name}.`);
+  const victor = teamDisplayName(state, winner);
+  return withEvent({ ...state, roundWins, status }, matchFinished ? `${reason} ${victor} wins the match ${roundWins.player}–${roundWins.enemy}.` : `${reason} Round ${state.round} goes to ${victor}.`);
+}
+
+export function teamDisplayName(state: GameState, team: Team): string {
+  if (state.matchMode === "2v2") return team === "player" ? "Western Alliance" : "Eastern Alliance";
+  return FACTIONS[state.factions[team]].name;
 }
 
 function resolveRound(state: GameState): GameState {
@@ -1115,8 +1212,8 @@ function resolveRound(state: GameState): GameState {
   if (state.keeps.player <= 0) return finishRound(state, "enemy", "The western Anchorhold has fallen.");
   if (state.elapsed < MATCH_LIMIT) return state;
 
-  const unusedPlayer = state.reprieveUsed.player ? 0 : 1;
-  const unusedEnemy = state.reprieveUsed.enemy ? 0 : 1;
+  const unusedPlayer = commandersForTeam(state, "player").filter((commander) => !state.reprieveUsed[commander]).length;
+  const unusedEnemy = commandersForTeam(state, "enemy").filter((commander) => !state.reprieveUsed[commander]).length;
   if (unusedPlayer !== unusedEnemy) return finishRound(state, unusedPlayer > unusedEnemy ? "player" : "enemy", "The ledger closed; the unused Reprieve decided the tie.");
   const playerIncome = incomeFor(state, "player");
   const enemyIncome = incomeFor(state, "enemy");
@@ -1129,10 +1226,10 @@ function resolveRound(state: GameState): GameState {
 
 function processProduction(state: GameState): GameState {
   let next = state;
-  for (const team of ["player", "enemy"] as const) {
-    const active = next.buildings.filter((building) => building.team === team && BUILDING_SPECS[building.kind].unitKind && !building.productionPaused);
-    if (next.syncEnabled[team]) {
-      if (next.syncClock[team] <= 0 && active.length) {
+  for (const commander of activeCommandersFor(next)) {
+    const active = next.buildings.filter((building) => commanderForBuilding(building) === commander && BUILDING_SPECS[building.kind].unitKind && !building.productionPaused);
+    if (next.syncEnabled[commander]) {
+      if (next.syncClock[commander] <= 0 && active.length) {
         const ids = new Set(active.map((building) => building.id));
         for (const snapshot of active) {
           const current = next.buildings.find((building) => building.id === snapshot.id);
@@ -1142,7 +1239,7 @@ function processProduction(state: GameState): GameState {
         next = {
           ...next,
           buildings: next.buildings.map((building) => ids.has(building.id) ? { ...building, spawnClock: productionPeriod(building, next) } : building),
-          syncClock: { ...next.syncClock, [team]: longest },
+          syncClock: { ...next.syncClock, [commander]: longest },
         };
       }
     } else {
@@ -1168,26 +1265,24 @@ export function stepGame(input: GameState, dt: number, options: StepGameOptions 
     incomeClock: input.incomeClock - safeDt,
     aiClock: input.aiClock - safeDt,
     keepDefenseClock: input.keepDefenseClock - safeDt,
-    syncClock: {
-      player: input.syncEnabled.player ? input.syncClock.player - safeDt : input.syncClock.player,
-      enemy: input.syncEnabled.enemy ? input.syncClock.enemy - safeDt : input.syncClock.enemy,
-    },
+    syncClock: commanderRecord((commander) => input.syncEnabled[commander] ? input.syncClock[commander] - safeDt : input.syncClock[commander]),
     buildings: input.buildings.map((building) => ({
       ...building,
-      spawnClock: !building.productionPaused && !input.syncEnabled[building.team] ? building.spawnClock - safeDt : building.spawnClock,
+      spawnClock: !building.productionPaused && !input.syncEnabled[commanderForBuilding(building)] ? building.spawnClock - safeDt : building.spawnClock,
       abilityClock: building.abilityClock - safeDt,
     })),
   };
 
   if (state.incomeClock <= 0) {
-    const playerIncome = incomeFor(state, "player");
-    const enemyIncome = incomeFor(state, "enemy");
+    const incomes = commanderRecord((commander) => activeCommandersFor(state).includes(commander) ? incomeForCommander(state, commander) : 0);
+    const playerIncome = commandersForTeam(state, "player").reduce((total, commander) => total + incomes[commander], 0);
+    const enemyIncome = commandersForTeam(state, "enemy").reduce((total, commander) => total + incomes[commander], 0);
     state = {
       ...state,
-      resources: {
-        player: { ...state.resources.player, marks: state.resources.player.marks + playerIncome },
-        enemy: { ...state.resources.enemy, marks: state.resources.enemy.marks + enemyIncome },
-      },
+      resources: commanderRecord((commander) => ({
+        ...(state.resources[commander] ?? STARTING_RESOURCES),
+        marks: (state.resources[commander]?.marks ?? STARTING_RESOURCES.marks) + incomes[commander],
+      })),
       incomeClock: state.incomeClock + INCOME_INTERVAL,
       effects: [
         ...state.effects,
@@ -1218,23 +1313,30 @@ export function stepGame(input: GameState, dt: number, options: StepGameOptions 
 }
 
 export function matchReport(state: GameState, playtestAnswer?: string): string {
-  const player = FACTIONS[state.factions.player].name;
-  const enemy = FACTIONS[state.factions.enemy].name;
+  const player = teamDisplayName(state, "player");
+  const enemy = teamDisplayName(state, "enemy");
   const result = state.status === "won" ? `${player} victory` : state.status === "lost" ? `${enemy} victory` : state.status.replace("_", " ");
+  const factionsFor = (team: Team) => commandersForTeam(state, team).map((commander) => FACTIONS[state.factions[commander]].name).join(" + ");
+  const statFor = (stat: CommanderRecord<number>, team: Team) => commandersForTeam(state, team).reduce((total, commander) => total + (stat[commander] ?? 0), 0);
+  const reprievesFor = (team: Team) => {
+    const commanders = commandersForTeam(state, team);
+    return `${commanders.filter((commander) => state.reprieveUsed[commander]).length}/${commanders.length}`;
+  };
   return [
     "KEEPSTORM PLAYTEST ALPHA — MATCH REPORT",
     `Result: ${result}`,
     `Rounds: ${state.roundWins.player} / ${state.roundWins.enemy}`,
     `Total duration: ${Math.floor(state.totalElapsed / 60)}:${String(Math.floor(state.totalElapsed % 60)).padStart(2, "0")}`,
-    `Factions: ${player} / ${enemy}`,
+    `Mode: ${state.matchMode}`,
+    `Factions: ${factionsFor("player")} / ${factionsFor("enemy")}`,
     `Anchorholds: ${Math.ceil(state.keeps.player)} / ${Math.ceil(state.keeps.enemy)}`,
-    `Structures placed: ${state.stats.buildingsPlaced.player} / ${state.stats.buildingsPlaced.enemy}`,
-    `Upgrades purchased: ${state.stats.upgrades.player} / ${state.stats.upgrades.enemy}`,
-    `Cohorts raised: ${state.stats.unitsSpawned.player} / ${state.stats.unitsSpawned.enemy}`,
-    `Bounty earned: ${state.stats.bountyEarned.player} / ${state.stats.bountyEarned.enemy}`,
-    `Items commissioned: ${state.stats.itemsBought.player} / ${state.stats.itemsBought.enemy}`,
-    `Reprieve used this round: ${state.reprieveUsed.player ? "yes" : "no"} / ${state.reprieveUsed.enemy ? "yes" : "no"}`,
+    `Structures placed: ${statFor(state.stats.buildingsPlaced, "player")} / ${statFor(state.stats.buildingsPlaced, "enemy")}`,
+    `Upgrades purchased: ${statFor(state.stats.upgrades, "player")} / ${statFor(state.stats.upgrades, "enemy")}`,
+    `Cohorts raised: ${statFor(state.stats.unitsSpawned, "player")} / ${statFor(state.stats.unitsSpawned, "enemy")}`,
+    `Bounty earned: ${statFor(state.stats.bountyEarned, "player")} / ${statFor(state.stats.bountyEarned, "enemy")}`,
+    `Items commissioned: ${statFor(state.stats.itemsBought, "player")} / ${statFor(state.stats.itemsBought, "enemy")}`,
+    `Reprieves used this round: ${reprievesFor("player")} / ${reprievesFor("enemy")}`,
     `What felt decisive: ${playtestAnswer || "not answered"}`,
-    "Build: multiplayer-alpha-0.3.0",
+    "Build: team-alpha-0.4.0",
   ].join("\n");
 }

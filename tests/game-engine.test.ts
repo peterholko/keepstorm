@@ -14,6 +14,7 @@ import {
   canAfford,
   castReprieve,
   createInitialState,
+  createMultiplayerState,
   factionBuildings,
   incomeFor,
   placeBuilding,
@@ -155,6 +156,36 @@ test("Rally Sync deploys active Foundries together", () => {
   assert.equal(state.syncEnabled.player, true);
   assert.equal(state.units.filter((unit) => unit.team === "player").length, 2);
   assert.deepEqual(new Set(state.units.filter((unit) => unit.team === "player").map((unit) => unit.kind)), new Set(["ramguard", "quillrunner"]));
+});
+
+test("2v2 allies earn, synchronize, spawn, and spend Reprieves independently", () => {
+  let state = createMultiplayerState("2v2", {
+    player: "daybreak",
+    player_ally: "briarcrown",
+    enemy: "stormglass",
+    enemy_ally: "daybreak",
+  });
+  state = placeBuilding(state, "player", "dawn_bastion", 9, 4);
+  state = placeBuilding(state, "player_ally", "briar_hollow", 9, 16);
+  const primaryMarks = state.resources.player.marks;
+  const allyMarks = state.resources.player_ally.marks;
+  state = toggleSynchronization(state, "player_ally");
+  state.syncClock.player_ally = 0;
+  state.incomeClock = 0;
+  state.aiClock = 100;
+  state.keepDefenseClock = 100;
+  state = stepGame(state, .1, { runAi: false });
+  assert.equal(state.syncEnabled.player, false);
+  assert.equal(state.syncEnabled.player_ally, true);
+  assert.equal(state.units.length, 1);
+  assert.equal(state.units[0].commander, "player_ally");
+  assert.equal(state.resources.player.marks, primaryMarks + 49);
+  assert.equal(state.resources.player_ally.marks, allyMarks + 49);
+
+  state.elapsed = REPRIEVE_READY_AT;
+  state = castReprieve(state, "player_ally");
+  assert.equal(state.reprieveUsed.player_ally, true);
+  assert.equal(reprieveReady(state, "player"), true);
 });
 
 test("ground-only vanguards cannot hit air, while anti-air cohorts can", () => {

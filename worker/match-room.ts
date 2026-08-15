@@ -1,16 +1,24 @@
 import { DurableObject } from "cloudflare:workers";
 import { timingSafeEqual } from "node:crypto";
 import {
-  createInitialState,
+  COMMANDER_IDS,
+  createMultiplayerState,
   startNextRound,
+  teamForCommander,
+  type CommanderId,
+  type CommanderRecord,
   type FactionId,
   type GameState,
+  type ResourceStock,
   type Team,
 } from "../lib/musterhold/engine.ts";
 import {
   MULTIPLAYER_PROTOCOL_VERSION,
   RECONNECT_GRACE_MS,
+  isOnlineMatchMode,
   parseClientMessage,
+  seatsForMode,
+  type OnlineMatchMode,
   type RoomPhase,
   type RoomSeatView,
   type RoomSnapshot,
@@ -27,14 +35,32 @@ const ROOM_STORAGE_KEY = "room";
 const ROOM_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MAX_MESSAGE_BYTES = 8_192;
 const MIN_TICK_MS = 40;
+const DEFAULT_RESOURCES: ResourceStock = { marks: 520, timber: 70, sigils: 1 };
 
 interface SocketAttachment {
   authenticated: boolean;
   sessionId: string;
-  team?: Team;
+  commander?: CommanderId;
 }
 
 interface PersistedRoom {
+  schemaVersion: 2;
+  code: string;
+  mode: OnlineMatchMode;
+  phase: RoomPhase;
+  factions: CommanderRecord<FactionId | null>;
+  tokenHashes: CommanderRecord<string | null>;
+  ready: CommanderRecord<boolean>;
+  lastSeq: CommanderRecord<number>;
+  reconnectDeadlines: CommanderRecord<number | null>;
+  game: GameState | null;
+  revision: number;
+  lastAdvancedAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface LegacyPersistedRoom {
   code: string;
   phase: RoomPhase;
   factions: Record<Team, FactionId | null>;
@@ -50,8 +76,12 @@ interface PersistedRoom {
 }
 
 export type RoomSetupResult =
-  | { ok: true; token: string }
+  | { ok: true; token: string; commander: CommanderId; mode: OnlineMatchMode }
   | { ok: false; code: "conflict" | "not_found" | "room_full"; message: string };
+
+function seatRecord<T>(factory: (commander: CommanderId) => T): CommanderRecord<T> {
+  return Object.fromEntries(COMMANDER_IDS.map((commander) => [commander, factory(commander)])) as CommanderRecord<T>;
+}
 
 function secureToken(): string {
   const bytes = new Uint8Array(32);
@@ -84,8 +114,8 @@ function socketAttachment(socket: WebSocket): SocketAttachment | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<SocketAttachment>;
   if (typeof candidate.authenticated !== "boolean" || typeof candidate.sessionId !== "string") return null;
-  if (candidate.team !== undefined && candidate.team !== "player" && candidate.team !== "enemy") return null;
-  return { authenticated: candidate.authenticated, sessionId: candidate.sessionId, team: candidate.team };
+  if (candidate.commander !== undefined && !COMMANDER_IDS.includes(candidate.commander)) return null;
+  return { authenticated: candidate.authenticated, sessionId: candidate.sessionId, commander: candidate.commander };
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {
@@ -97,45 +127,98 @@ function send(socket: WebSocket, message: ServerMessage): void {
   }
 }
 
+function normalizeGame(game: GameState | null, mode: OnlineMatchMode): GameState | null {
+  if (!game) return null;
+  game.matchMode = mode;
+  game.activeCommanders = seatsForMode(mode);
+  game.factions = seatRecord((commander) => game.factions[commander] ?? game.factions[teamForCommander(commander)] ?? "daybreak");
+  game.resources = seatRecord((commander) => ({ ...(game.resources[commander] ?? DEFAULT_RESOURCES) }));
+  game.syncEnabled = seatRecord((commander) => game.syncEnabled[commander] ?? false);
+  game.syncClock = seatRecord((commander) => game.syncClock[commander] ?? 12);
+  game.reprieveUsed = seatRecord((commander) => game.reprieveUsed[commander] ?? false);
+  game.rallyHorn = seatRecord((commander) => game.rallyHorn[commander] ?? false);
+  game.keepArmorUntil = seatRecord((commander) => game.keepArmorUntil[commander] ?? 0);
+  game.stats = {
+    buildingsPlaced: seatRecord((commander) => game.stats.buildingsPlaced[commander] ?? 0),
+    buildingsLost: seatRecord((commander) => game.stats.buildingsLost[commander] ?? 0),
+    unitsSpawned: seatRecord((commander) => game.stats.unitsSpawned[commander] ?? 0),
+    unitsLost: seatRecord((commander) => game.stats.unitsLost[commander] ?? 0),
+    keepDamage: seatRecord((commander) => game.stats.keepDamage[commander] ?? 0),
+    upgrades: seatRecord((commander) => game.stats.upgrades[commander] ?? 0),
+    itemsBought: seatRecord((commander) => game.stats.itemsBought[commander] ?? 0),
+    bountyEarned: seatRecord((commander) => game.stats.bountyEarned[commander] ?? 0),
+  };
+  game.buildings = game.buildings.map((building) => ({ ...building, commander: building.commander ?? building.team }));
+  game.units = game.units.map((unit) => ({ ...unit, commander: unit.commander ?? unit.team }));
+  return game;
+}
+
+function normalizeRoom(stored: PersistedRoom | LegacyPersistedRoom): PersistedRoom {
+  if ("schemaVersion" in stored && stored.schemaVersion === 2 && isOnlineMatchMode(stored.mode)) {
+    stored.game = normalizeGame(stored.game, stored.mode);
+    return stored;
+  }
+  return {
+    schemaVersion: 2,
+    code: stored.code,
+    mode: "1v1",
+    phase: stored.phase,
+    factions: seatRecord((commander) => commander === "player_ally" || commander === "enemy_ally" ? null : stored.factions[commander]),
+    tokenHashes: seatRecord((commander) => commander === "player_ally" || commander === "enemy_ally" ? null : stored.tokenHashes[commander]),
+    ready: seatRecord((commander) => commander === "player_ally" || commander === "enemy_ally" ? false : stored.ready[commander]),
+    lastSeq: seatRecord((commander) => commander === "player_ally" || commander === "enemy_ally" ? 0 : stored.lastSeq[commander]),
+    reconnectDeadlines: seatRecord((commander) => commander === "player_ally" || commander === "enemy_ally" ? null : stored.reconnectDeadlines[commander]),
+    game: normalizeGame(stored.game, "1v1"),
+    revision: stored.revision,
+    lastAdvancedAt: stored.lastAdvancedAt,
+    createdAt: stored.createdAt,
+    updatedAt: stored.updatedAt,
+  };
+}
+
 export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
-  async createRoom(code: string, faction: FactionId): Promise<RoomSetupResult> {
-    const existing = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+  async createRoom(code: string, faction: FactionId, mode: OnlineMatchMode): Promise<RoomSetupResult> {
+    const existing = await this.loadRoom();
     if (existing) return { ok: false, code: "conflict", message: "That invitation code is already in use." };
 
     const token = secureToken();
     const now = Date.now();
     const room: PersistedRoom = {
+      schemaVersion: 2,
       code,
+      mode,
       phase: "waiting",
-      factions: { player: faction, enemy: null },
-      tokenHashes: { player: await hashToken(token), enemy: null },
-      ready: { player: false, enemy: false },
-      lastSeq: { player: 0, enemy: 0 },
-      reconnectDeadlines: { player: null, enemy: null },
+      factions: seatRecord((commander) => commander === "player" ? faction : null),
+      tokenHashes: seatRecord(() => null),
+      ready: seatRecord(() => false),
+      lastSeq: seatRecord(() => 0),
+      reconnectDeadlines: seatRecord(() => null),
       game: null,
       revision: 1,
       lastAdvancedAt: now,
       createdAt: now,
       updatedAt: now,
     };
+    room.tokenHashes.player = await hashToken(token);
     await this.ctx.storage.put(ROOM_STORAGE_KEY, room);
     await this.ctx.storage.setAlarm(now + ROOM_LIFETIME_MS);
-    return { ok: true, token };
+    return { ok: true, token, commander: "player", mode };
   }
 
   async joinRoom(faction: FactionId): Promise<RoomSetupResult> {
-    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    const room = await this.loadRoom();
     if (!room) return { ok: false, code: "not_found", message: "That Keepstorm room does not exist." };
-    if (room.tokenHashes.enemy) return { ok: false, code: "room_full", message: "That Keepstorm room already has two commanders." };
+    const commander = seatsForMode(room.mode).find((seat) => seat !== "player" && !room.tokenHashes[seat]);
+    if (!commander) return { ok: false, code: "room_full", message: `That Keepstorm ${room.mode} room already has every commander.` };
 
     const token = secureToken();
-    room.factions.enemy = faction;
-    room.tokenHashes.enemy = await hashToken(token);
+    room.factions[commander] = faction;
+    room.tokenHashes[commander] = await hashToken(token);
     room.updatedAt = Date.now();
     room.revision += 1;
-    await this.ctx.storage.put(ROOM_STORAGE_KEY, room);
+    await this.persist(room);
     this.broadcast(room);
-    return { ok: true, token };
+    return { ok: true, token, commander, mode: room.mode };
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -175,7 +258,7 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
       socket.close(4003, "Invalid connection state");
       return;
     }
-    if (!attachment?.authenticated) {
+    if (!attachment.authenticated) {
       if (message.type !== "hello") {
         send(socket, { type: "error", code: "authentication_required", message: "Reconnect with the invitation seat token." });
         return;
@@ -183,12 +266,12 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
       await this.authenticate(socket, attachment, message.token);
       return;
     }
-    if (!attachment.team || message.type === "hello") {
+    if (!attachment.commander || message.type === "hello") {
       send(socket, { type: "error", code: "invalid_session", message: "This multiplayer seat is no longer valid." });
       return;
     }
 
-    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    const room = await this.loadRoom();
     if (!room) {
       send(socket, { type: "error", code: "room_closed", message: "This Keepstorm room has expired." });
       socket.close(4004, "Room expired");
@@ -205,12 +288,12 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
     }
 
     if (message.type === "leave_room") {
-      await this.leaveRoom(room, attachment.team, socket, attachment.sessionId);
+      await this.leaveRoom(room, attachment.commander, socket, attachment.sessionId);
       return;
     }
 
     if (message.type === "set_ready") {
-      room.ready[attachment.team] = message.ready;
+      room.ready[attachment.commander] = message.ready;
       this.transitionReadyRoom(room, Date.now());
       room.revision += 1;
       await this.persist(room);
@@ -218,11 +301,11 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
       return;
     }
 
-    if (message.seq <= room.lastSeq[attachment.team]) {
+    if (message.seq <= room.lastSeq[attachment.commander]) {
       send(socket, { type: "error", code: "duplicate_command", message: "That command was already processed.", seq: message.seq });
       return;
     }
-    room.lastSeq[attachment.team] = message.seq;
+    room.lastSeq[attachment.commander] = message.seq;
     this.advanceRoom(room, Date.now());
     if (room.phase !== "playing" || !room.game) {
       await this.persist(room);
@@ -230,7 +313,7 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
       return;
     }
 
-    const result = applyGameCommand(room.game, attachment.team, message.command);
+    const result = applyGameCommand(room.game, attachment.commander, message.command);
     if (!result.accepted) {
       await this.persist(room);
       send(socket, { type: "error", code: "command_rejected", message: result.message, seq: message.seq });
@@ -239,7 +322,7 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
 
     room.game = result.state;
     room.phase = phaseForGame(result.state);
-    if (room.phase !== "playing") room.ready = { player: false, enemy: false };
+    if (room.phase !== "playing") this.resetReady(room);
     room.revision += 1;
     await this.persist(room);
     send(socket, { type: "ack", seq: message.seq, revision: room.revision });
@@ -259,18 +342,27 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
     await this.ctx.storage.deleteAll();
   }
 
+  private async loadRoom(): Promise<PersistedRoom | null> {
+    const stored = await this.ctx.storage.get<PersistedRoom | LegacyPersistedRoom>(ROOM_STORAGE_KEY);
+    return stored ? normalizeRoom(stored) : null;
+  }
+
   private async authenticate(socket: WebSocket, attachment: SocketAttachment, token: string): Promise<void> {
-    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    const room = await this.loadRoom();
     if (!room) {
       send(socket, { type: "error", code: "room_closed", message: "This Keepstorm room has expired." });
       socket.close(4004, "Room expired");
       return;
     }
 
-    let team: Team | null = null;
-    if (await tokenMatches(token, room.tokenHashes.player)) team = "player";
-    else if (await tokenMatches(token, room.tokenHashes.enemy)) team = "enemy";
-    if (!team) {
+    let commander: CommanderId | null = null;
+    for (const seat of seatsForMode(room.mode)) {
+      if (await tokenMatches(token, room.tokenHashes[seat])) {
+        commander = seat;
+        break;
+      }
+    }
+    if (!commander) {
       send(socket, { type: "error", code: "invalid_token", message: "That invitation seat token is not valid." });
       socket.close(4003, "Invalid seat token");
       return;
@@ -279,11 +371,11 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
     for (const existing of this.ctx.getWebSockets()) {
       if (existing === socket) continue;
       const existingAttachment = socketAttachment(existing);
-      if (existingAttachment?.authenticated && existingAttachment.team === team) existing.close(4001, "Seat reconnected elsewhere");
+      if (existingAttachment?.authenticated && existingAttachment.commander === commander) existing.close(4001, "Seat reconnected elsewhere");
     }
 
-    socket.serializeAttachment({ ...attachment, authenticated: true, team } satisfies SocketAttachment);
-    room.reconnectDeadlines[team] = null;
+    socket.serializeAttachment({ ...attachment, authenticated: true, commander } satisfies SocketAttachment);
+    room.reconnectDeadlines[commander] = null;
     room.lastAdvancedAt = Date.now();
     this.transitionReadyRoom(room, room.lastAdvancedAt);
     room.revision += 1;
@@ -292,37 +384,36 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
   }
 
   private transitionReadyRoom(room: PersistedRoom, now: number): void {
-    const bothClaimed = Boolean(room.factions.player && room.factions.enemy);
-    const bothConnected = this.isConnected("player") && this.isConnected("enemy");
-    const bothReady = room.ready.player && room.ready.enemy;
-    if (!bothClaimed || !bothConnected || !bothReady) return;
+    const seats = seatsForMode(room.mode);
+    if (!seats.every((commander) => room.factions[commander] && room.tokenHashes[commander])) return;
+    if (!seats.every((commander) => this.isConnected(commander))) return;
+    if (!seats.every((commander) => room.ready[commander])) return;
 
     if (room.phase === "waiting" || room.phase === "match_complete") {
-      room.game = createInitialState(room.factions.player!, room.factions.enemy!);
+      room.game = createMultiplayerState(room.mode, seatRecord((commander) => room.factions[commander] ?? "daybreak"));
     } else if (room.phase === "round_complete" && room.game) {
       room.game = startNextRound(room.game);
     } else {
       return;
     }
     room.phase = "playing";
-    room.ready = { player: false, enemy: false };
-    room.reconnectDeadlines = { player: null, enemy: null };
+    this.resetReady(room);
+    room.reconnectDeadlines = seatRecord(() => null);
     room.lastAdvancedAt = now;
   }
 
   private advanceRoom(room: PersistedRoom, now: number): boolean {
     if (room.phase !== "playing" || !room.game) return false;
-    const playerConnected = this.isConnected("player");
-    const enemyConnected = this.isConnected("enemy");
-    if (!playerConnected || !enemyConnected) {
-      const loser = (["player", "enemy"] as Team[]).find((team) => {
-        const deadline = room.reconnectDeadlines[team];
-        return !this.isConnected(team) && deadline !== null && now >= deadline;
+    const seats = seatsForMode(room.mode);
+    if (!seats.every((commander) => this.isConnected(commander))) {
+      const missing = seats.find((commander) => {
+        const deadline = room.reconnectDeadlines[commander];
+        return !this.isConnected(commander) && deadline !== null && now >= deadline;
       });
-      if (loser) {
-        room.game = forfeitGame(room.game, loser);
+      if (missing) {
+        room.game = forfeitGame(room.game, teamForCommander(missing));
         room.phase = "match_complete";
-        room.ready = { player: false, enemy: false };
+        this.resetReady(room);
         room.revision += 1;
         return true;
       }
@@ -334,7 +425,7 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
     room.game = advanceMultiplayerGame(room.game, elapsedMs / 1000);
     room.lastAdvancedAt = now;
     const nextPhase = phaseForGame(room.game);
-    if (nextPhase !== room.phase) room.ready = { player: false, enemy: false };
+    if (nextPhase !== room.phase) this.resetReady(room);
     room.phase = nextPhase;
     room.revision += 1;
     return true;
@@ -342,12 +433,12 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
 
   private async markDisconnected(socket: WebSocket): Promise<void> {
     const attachment = socketAttachment(socket);
-    if (!attachment?.authenticated || !attachment.team || this.isConnected(attachment.team, socket)) return;
-    const room = await this.ctx.storage.get<PersistedRoom>(ROOM_STORAGE_KEY);
+    if (!attachment?.authenticated || !attachment.commander || this.isConnected(attachment.commander, socket)) return;
+    const room = await this.loadRoom();
     if (!room) return;
-    if (room.phase === "waiting") room.ready[attachment.team] = false;
+    if (room.phase === "waiting") room.ready[attachment.commander] = false;
     if (room.phase === "playing") {
-      room.reconnectDeadlines[attachment.team] = Date.now() + RECONNECT_GRACE_MS;
+      room.reconnectDeadlines[attachment.commander] = Date.now() + RECONNECT_GRACE_MS;
       room.lastAdvancedAt = Date.now();
     }
     room.revision += 1;
@@ -355,15 +446,15 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
     this.broadcast(room);
   }
 
-  private async leaveRoom(room: PersistedRoom, team: Team, socket: WebSocket, sessionId: string): Promise<void> {
+  private async leaveRoom(room: PersistedRoom, commander: CommanderId, socket: WebSocket, sessionId: string): Promise<void> {
     socket.serializeAttachment({ authenticated: false, sessionId } satisfies SocketAttachment);
 
     if (room.phase === "playing" && room.game) {
-      room.game = forfeitGame(room.game, team);
+      room.game = forfeitGame(room.game, teamForCommander(commander));
       room.phase = "match_complete";
-      room.ready = { player: false, enemy: false };
-      room.reconnectDeadlines = { player: null, enemy: null };
-      if (team === "enemy") this.clearGuestSeat(room);
+      this.resetReady(room);
+      room.reconnectDeadlines = seatRecord(() => null);
+      if (commander !== "player") this.clearSeat(room, commander);
       room.revision += 1;
       await this.persist(room);
       this.broadcast(room);
@@ -371,11 +462,11 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
       return;
     }
 
-    if (team === "enemy") {
-      this.clearGuestSeat(room);
+    if (commander !== "player") {
+      this.clearSeat(room, commander);
       room.game = null;
       room.phase = "waiting";
-      room.ready = { player: false, enemy: false };
+      this.resetReady(room);
       room.revision += 1;
       await this.persist(room);
       this.broadcast(room);
@@ -391,42 +482,45 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
     await this.ctx.storage.deleteAll();
   }
 
-  private clearGuestSeat(room: PersistedRoom): void {
-    room.factions.enemy = null;
-    room.tokenHashes.enemy = null;
-    room.ready.enemy = false;
-    room.lastSeq.enemy = 0;
-    room.reconnectDeadlines.enemy = null;
+  private clearSeat(room: PersistedRoom, commander: CommanderId): void {
+    room.factions[commander] = null;
+    room.tokenHashes[commander] = null;
+    room.ready[commander] = false;
+    room.lastSeq[commander] = 0;
+    room.reconnectDeadlines[commander] = null;
   }
 
-  private isConnected(team: Team, excluding?: WebSocket): boolean {
+  private resetReady(room: PersistedRoom): void {
+    room.ready = seatRecord(() => false);
+  }
+
+  private isConnected(commander: CommanderId, excluding?: WebSocket): boolean {
     return this.ctx.getWebSockets().some((socket) => {
       if (socket === excluding || socket.readyState !== WebSocket.OPEN) return false;
       const attachment = socketAttachment(socket);
-      return attachment?.authenticated === true && attachment.team === team;
+      return attachment?.authenticated === true && attachment.commander === commander;
     });
   }
 
-  private seatView(room: PersistedRoom, team: Team): RoomSeatView {
+  private seatView(room: PersistedRoom, commander: CommanderId): RoomSeatView {
     return {
-      faction: room.factions[team],
-      claimed: room.tokenHashes[team] !== null,
-      connected: this.isConnected(team),
-      ready: room.ready[team],
-      reconnectDeadline: room.reconnectDeadlines[team],
+      faction: room.factions[commander],
+      claimed: room.tokenHashes[commander] !== null,
+      connected: this.isConnected(commander),
+      ready: room.ready[commander],
+      reconnectDeadline: room.reconnectDeadlines[commander],
     };
   }
 
-  private snapshot(room: PersistedRoom, localTeam: Team): RoomSnapshot {
+  private snapshot(room: PersistedRoom, localCommander: CommanderId): RoomSnapshot {
     return {
       code: room.code,
+      mode: room.mode,
       phase: room.phase,
       revision: room.revision,
-      localTeam,
-      seats: {
-        player: this.seatView(room, "player"),
-        enemy: this.seatView(room, "enemy"),
-      },
+      localCommander,
+      localTeam: teamForCommander(localCommander),
+      seats: seatRecord((commander) => this.seatView(room, commander)),
       game: room.game,
     };
   }
@@ -434,8 +528,8 @@ export class KeepstormMatchRoom extends DurableObject<CloudflareBindings> {
   private broadcast(room: PersistedRoom): void {
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = socketAttachment(socket);
-      if (!attachment?.authenticated || !attachment.team) continue;
-      send(socket, { type: "snapshot", snapshot: this.snapshot(room, attachment.team) });
+      if (!attachment?.authenticated || !attachment.commander) continue;
+      send(socket, { type: "snapshot", snapshot: this.snapshot(room, attachment.commander) });
     }
   }
 

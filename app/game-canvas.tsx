@@ -14,9 +14,16 @@ import {
   UNIT_SPECS,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  buildAreasForCommander,
+  commanderForBuilding,
+  commanderForUnit,
+  commandersForTeam,
+  teamDisplayName,
+  teamForCommander,
   validatePlacement,
   type Building,
   type BuildingKind,
+  type CommanderId,
   type FactionId,
   type GameState,
   type GridPoint,
@@ -32,7 +39,7 @@ interface LoadedArt {
 
 interface GameCanvasProps {
   state: GameState;
-  localTeam: Team;
+  localCommander: CommanderId;
   selected: BuildingKind | null;
   selectedBuildingId: number | null;
   onPlace: (kind: BuildingKind, gridX: number, gridY: number) => void;
@@ -47,6 +54,10 @@ interface HoverCell extends GridPoint {
 
 function teamColor(state: GameState, team: Team): string {
   return FACTIONS[state.factions[team]].color;
+}
+
+function commanderColor(state: GameState, commander: CommanderId): string {
+  return FACTIONS[state.factions[commander]].color;
 }
 
 function drawHealthBar(context: CanvasRenderingContext2D, x: number, y: number, width: number, ratio: number, color: string): void {
@@ -82,7 +93,7 @@ function drawBuilding(context: CanvasRenderingContext2D, state: GameState, build
   const centerX = (building.gridX + spec.width / 2) * CELL_SIZE;
   const groundY = (building.gridY + spec.height) * CELL_SIZE + 8;
   const { width, height } = buildingDimensions(building);
-  const color = teamColor(state, building.team);
+  const color = commanderColor(state, commanderForBuilding(building));
   drawFootprint(context, building, color, selected);
   context.save();
   context.shadowColor = selected ? color : "rgba(8, 10, 8, .55)";
@@ -128,7 +139,7 @@ function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Uni
   const spec = UNIT_SPECS[unit.kind];
   const { width, height } = unitDimensions(unit);
   const float = spec.flying ? Math.sin(state.elapsed * 5 + unit.id) * 4 - 15 : spec.role === "support" ? Math.sin(state.elapsed * 4 + unit.id) * 2 - 3 : 0;
-  const color = teamColor(state, unit.team);
+  const color = commanderColor(state, commanderForUnit(unit));
 
   context.save();
   context.fillStyle = "rgba(5, 9, 7, .34)";
@@ -171,13 +182,13 @@ function drawKeep(context: CanvasRenderingContext2D, state: GameState, team: Tea
   context.restore();
   drawHealthBar(context, base.x, base.y - 180, 122, state.keeps[team] / KEEP_MAX_HP, color);
 
-  const armored = state.keepArmorUntil[team] > state.elapsed;
+  const armored = commandersForTeam(state, team).some((commander) => state.keepArmorUntil[commander] > state.elapsed);
   context.textAlign = "center";
   context.fillStyle = "rgba(12, 16, 12, .84)";
   context.fillRect(base.x - 74, base.y + 112, 148, 34);
   context.fillStyle = color;
   context.font = "800 11px Trebuchet MS, sans-serif";
-  context.fillText(FACTIONS[state.factions[team]].name.toUpperCase(), base.x, base.y + 126);
+  context.fillText(teamDisplayName(state, team).toUpperCase(), base.x, base.y + 126);
   context.fillStyle = "#fff3d5";
   context.font = "700 11px Trebuchet MS, sans-serif";
   context.fillText(`${Math.ceil(state.keeps[team])} HP${armored ? " · ARMORED" : ""}`, base.x, base.y + 140);
@@ -238,10 +249,10 @@ function drawEffects(context: CanvasRenderingContext2D, state: GameState): void 
   }
 }
 
-function drawGrid(context: CanvasRenderingContext2D, state: GameState, team: Team, bright: boolean): void {
+function drawGrid(context: CanvasRenderingContext2D, state: GameState, team: Team, bright: boolean, zones = BUILD_AREAS[team]): void {
   const color = teamColor(state, team);
   context.save();
-  for (const zone of BUILD_AREAS[team]) {
+  for (const zone of zones) {
     const x = zone.minX * CELL_SIZE;
     const y = zone.minY * CELL_SIZE;
     const width = (zone.maxX - zone.minX + 1) * CELL_SIZE;
@@ -286,7 +297,8 @@ function drawRoute(context: CanvasRenderingContext2D, path: GridPoint[] | undefi
   context.restore();
 }
 
-export default function GameCanvas({ state, localTeam, selected, selectedBuildingId, onPlace, onSelectBuilding, onCancelSelection, onHoverMessage }: GameCanvasProps) {
+export default function GameCanvas({ state, localCommander, selected, selectedBuildingId, onPlace, onSelectBuilding, onCancelSelection, onHoverMessage }: GameCanvasProps) {
+  const localTeam = teamForCommander(localCommander);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [art, setArt] = useState<LoadedArt | null>(null);
@@ -350,8 +362,8 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
 
   const hoverValidation = useMemo(() => {
     if (!selected || !hover) return null;
-    return validatePlacement(state, localTeam, selected, hover.x, hover.y);
-  }, [hover, localTeam, selected, state]);
+    return validatePlacement(state, localCommander, selected, hover.x, hover.y);
+  }, [hover, localCommander, selected, state]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -366,8 +378,9 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
     context.fillStyle = "rgba(10, 16, 9, .055)";
     context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-    drawGrid(context, state, "player", Boolean(selected) && localTeam === "player");
-    drawGrid(context, state, "enemy", Boolean(selected) && localTeam === "enemy");
+    drawGrid(context, state, "player", false);
+    drawGrid(context, state, "enemy", false);
+    if (selected) drawGrid(context, state, localTeam, true, buildAreasForCommander(state, localCommander));
 
     if (selected && hover && hoverValidation) {
       const spec = BUILDING_SPECS[selected];
@@ -386,7 +399,7 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
         const dimensions = buildingDimensions({ kind: selected } as Building);
         const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
         const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
-        drawAtlasCell(context, art.factions[state.factions[localTeam]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
+        drawAtlasCell(context, art.factions[state.factions[localCommander]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
         context.restore();
       }
     }
@@ -399,18 +412,18 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
       const spec = BUILDING_SPECS[building.kind];
       fieldObjects.push({
         y: (building.gridY + spec.height) * CELL_SIZE,
-        draw: () => drawBuilding(context, state, building, art.factions[state.factions[building.team]], selectedBuildingId === building.id),
+        draw: () => drawBuilding(context, state, building, art.factions[state.factions[commanderForBuilding(building)]], selectedBuildingId === building.id),
       });
     }
     for (const unit of state.units) {
       fieldObjects.push({
         y: unit.y,
-        draw: () => drawUnit(context, state, unit, art.factions[state.factions[unit.team]]),
+        draw: () => drawUnit(context, state, unit, art.factions[state.factions[commanderForUnit(unit)]]),
       });
     }
     fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
     drawEffects(context, state);
-  }, [art, hover, hoverValidation, localTeam, renderScale, selected, selectedBuildingId, state]);
+  }, [art, hover, hoverValidation, localCommander, localTeam, renderScale, selected, selectedBuildingId, state]);
 
   const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -424,19 +437,19 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
   const updateHover = (cell: HoverCell | null) => {
     setHover(cell);
     if (!cell || !selected) onHoverMessage(null);
-    else onHoverMessage(validatePlacement(state, localTeam, selected, cell.x, cell.y).reason);
+    else onHoverMessage(validatePlacement(state, localCommander, selected, cell.x, cell.y).reason);
   };
 
   const commitPlacement = () => {
     if (!selected || !hover) return;
-    const validation = validatePlacement(state, localTeam, selected, hover.x, hover.y);
+    const validation = validatePlacement(state, localCommander, selected, hover.x, hover.y);
     onHoverMessage(validation.reason);
     if (validation.valid) onPlace(selected, hover.x, hover.y);
   };
 
   const selectAtCell = (cell: GridPoint) => {
     const hit = [...state.buildings].reverse().find((building) => {
-      if (building.team !== localTeam) return false;
+      if (commanderForBuilding(building) !== localCommander) return false;
       const spec = BUILDING_SPECS[building.kind];
       return cell.x >= building.gridX && cell.x < building.gridX + spec.width && cell.y >= building.gridY && cell.y < building.gridY + spec.height;
     });
@@ -485,7 +498,7 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
               const cell = cellFromPointer(event);
               updateHover(cell);
               if (!selected) { selectAtCell(cell); return; }
-              const validation = validatePlacement(state, localTeam, selected, cell.x, cell.y);
+              const validation = validatePlacement(state, localCommander, selected, cell.x, cell.y);
               onHoverMessage(validation.reason);
               if (validation.valid) onPlace(selected, cell.x, cell.y);
             }}
@@ -509,7 +522,7 @@ export default function GameCanvas({ state, localTeam, selected, selectedBuildin
               const delta = movement[event.key];
               if (!delta) return;
               event.preventDefault();
-              const localArea = BUILD_AREAS[localTeam][0];
+              const localArea = buildAreasForCommander(state, localCommander)[0];
               const origin = hover ?? { x: localArea.minX + 1, y: localArea.minY + 1, source: "keyboard" as const };
               updateHover({
                 x: Math.max(0, Math.min(GRID_COLUMNS - 1, origin.x + delta.x)),

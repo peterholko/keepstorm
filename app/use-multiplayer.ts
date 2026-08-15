@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MULTIPLAYER_PROTOCOL_VERSION,
+  isCommanderId,
+  isOnlineMatchMode,
   isRoomCode,
   isServerMessage,
   normalizeRoomCode,
   type ConnectionState,
   type GameCommand,
+  type OnlineMatchMode,
   type RoomCredential,
   type RoomSnapshot,
 } from "@/lib/multiplayer/protocol";
-import type { FactionId, Team } from "@/lib/musterhold/engine";
+import { teamForCommander, type CommanderId, type FactionId, type Team } from "@/lib/musterhold/engine";
 
-const SEAT_STORAGE_KEY = "keepstorm.multiplayer.seat.v1";
+const SEAT_STORAGE_KEY = "keepstorm.multiplayer.seat.v2";
 const TICK_INTERVAL_MS = 150;
 
 interface StoredSeat {
@@ -33,7 +36,12 @@ function readStoredSeat(): StoredSeat | null {
     if (!value || typeof value !== "object") return null;
     const candidate = value as Partial<StoredSeat>;
     const credential = candidate.credential;
-    if (!credential || !isRoomCode(credential.roomCode) || (credential.team !== "player" && credential.team !== "enemy") || typeof credential.token !== "string") return null;
+    if (!credential
+      || !isRoomCode(credential.roomCode)
+      || !isOnlineMatchMode(credential.mode)
+      || !isCommanderId(credential.commander)
+      || credential.team !== teamForCommander(credential.commander)
+      || typeof credential.token !== "string") return null;
     return { credential, nextSeq: Number.isSafeInteger(candidate.nextSeq) && Number(candidate.nextSeq) > 0 ? Number(candidate.nextSeq) : 1 };
   } catch {
     return null;
@@ -56,7 +64,9 @@ async function responseMessage(response: Response): Promise<string> {
 export function useMultiplayer() {
   const [connection, setConnection] = useState<ConnectionState>("idle");
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
+  const [commander, setCommander] = useState<CommanderId | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
+  const [mode, setMode] = useState<OnlineMatchMode | null>(null);
   const [roomCode, setRoomCode] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,7 +90,9 @@ export function useMultiplayer() {
 
     credentialRef.current = credential;
     shouldReconnectRef.current = true;
+    setCommander(credential.commander);
     setTeam(credential.team);
+    setMode(credential.mode);
     setRoomCode(credential.roomCode);
     setConnection(reconnecting ? "reconnecting" : "connecting");
 
@@ -167,14 +179,14 @@ export function useMultiplayer() {
     connect(credential);
   }, [connect]);
 
-  const createRoom = useCallback(async (faction: FactionId) => {
+  const createRoom = useCallback(async (faction: FactionId, mode: OnlineMatchMode) => {
     setBusy(true);
     setNotice(null);
     try {
       const response = await fetch("/api/multiplayer/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ faction }),
+        body: JSON.stringify({ faction, mode }),
       });
       if (!response.ok) throw new Error(await responseMessage(response));
       enterRoom(await response.json() as RoomCredential);
@@ -239,11 +251,13 @@ export function useMultiplayer() {
     url.searchParams.delete("room");
     window.history.replaceState(null, "", url);
     setSnapshot(null);
+    setCommander(null);
     setTeam(null);
+    setMode(null);
     setRoomCode("");
     setConnection("idle");
     setNotice(null);
   }, [clearReconnectTimer]);
 
-  return { connection, snapshot, team, roomCode, notice, busy, createRoom, joinRoom, setReady, sendCommand, leaveRoom };
+  return { connection, snapshot, commander, team, mode, roomCode, notice, busy, createRoom, joinRoom, setReady, sendCommand, leaveRoom };
 }

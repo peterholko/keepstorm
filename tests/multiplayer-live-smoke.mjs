@@ -23,7 +23,7 @@ function openSeat(credential) {
   const authenticate = () => {
     if (helloSent || socket.readyState !== WebSocket.OPEN) return;
     helloSent = true;
-    socket.send(JSON.stringify({ type: "hello", protocol: 1, token: credential.token }));
+    socket.send(JSON.stringify({ type: "hello", protocol: 2, token: credential.token }));
   };
 
   const deliver = (message) => {
@@ -47,6 +47,7 @@ function openSeat(credential) {
   });
 
   return {
+    credential,
     socket,
     send(message) { socket.send(JSON.stringify(message)); },
     next(predicate, timeoutMs = 5_000) {
@@ -65,37 +66,90 @@ function openSeat(credential) {
   };
 }
 
-const hostCredential = await post("/api/multiplayer/rooms", { faction: "daybreak" });
-const guestCredential = await post(`/api/multiplayer/rooms/${hostCredential.roomCode}/join`, { faction: "stormglass" });
-assert.equal(hostCredential.team, "player");
-assert.equal(guestCredential.team, "enemy");
+function allConnected(snapshot, commanders) {
+  return commanders.every((commander) => snapshot.seats[commander].connected);
+}
 
-const host = openSeat(hostCredential);
-const guest = openSeat(guestCredential);
-await Promise.all([
-  host.next((message) => message.type === "snapshot" && message.snapshot.seats.player.connected && message.snapshot.seats.enemy.connected),
-  guest.next((message) => message.type === "snapshot" && message.snapshot.seats.player.connected && message.snapshot.seats.enemy.connected),
-]);
+async function runOneVersusOne() {
+  const hostCredential = await post("/api/multiplayer/rooms", { faction: "daybreak", mode: "1v1" });
+  const guestCredential = await post(`/api/multiplayer/rooms/${hostCredential.roomCode}/join`, { faction: "stormglass" });
+  assert.equal(hostCredential.commander, "player");
+  assert.equal(guestCredential.commander, "enemy");
+  assert.equal(hostCredential.mode, "1v1");
 
-host.send({ type: "set_ready", ready: true });
-guest.send({ type: "set_ready", ready: true });
-await Promise.all([
-  host.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing"),
-  guest.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing"),
-]);
+  const host = openSeat(hostCredential);
+  const guest = openSeat(guestCredential);
+  const commanders = ["player", "enemy"];
+  await Promise.all([
+    host.next((message) => message.type === "snapshot" && allConnected(message.snapshot, commanders)),
+    guest.next((message) => message.type === "snapshot" && allConnected(message.snapshot, commanders)),
+  ]);
 
-host.send({ type: "command", seq: 1, command: { action: "place_building", kind: "dawn_bastion", gridX: 9, gridY: 4 } });
-guest.send({ type: "command", seq: 1, command: { action: "place_building", kind: "storm_coilforge", gridX: 80, gridY: 4 } });
-await host.next((message) => message.type === "snapshot" && message.snapshot.game?.buildings.some((building) => building.team === "player") && message.snapshot.game.buildings.some((building) => building.team === "enemy"));
+  host.send({ type: "set_ready", ready: true });
+  guest.send({ type: "set_ready", ready: true });
+  await Promise.all([
+    host.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing"),
+    guest.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing"),
+  ]);
 
-host.socket.close(1000, "Reconnect smoke test");
-await guest.next((message) => message.type === "snapshot" && !message.snapshot.seats.player.connected && message.snapshot.seats.player.reconnectDeadline !== null);
-const reconnectedHost = openSeat(hostCredential);
-const restored = await reconnectedHost.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing" && message.snapshot.seats.player.connected && message.snapshot.seats.enemy.connected);
-assert.equal(restored.snapshot.game.buildings.length, 2);
+  host.send({ type: "command", seq: 1, command: { action: "place_building", kind: "dawn_bastion", gridX: 9, gridY: 4 } });
+  guest.send({ type: "command", seq: 1, command: { action: "place_building", kind: "storm_coilforge", gridX: 80, gridY: 4 } });
+  await host.next((message) => message.type === "snapshot" && message.snapshot.game?.buildings.length === 2);
 
-guest.send({ type: "leave_room" });
-const forfeited = await reconnectedHost.next((message) => message.type === "snapshot" && message.snapshot.phase === "match_complete" && message.snapshot.game?.status === "won");
-assert.equal(forfeited.snapshot.seats.enemy.claimed, false);
-reconnectedHost.send({ type: "leave_room" });
-console.log(`Keepstorm live multiplayer smoke passed for room ${hostCredential.roomCode}.`);
+  host.socket.close(1000, "Reconnect smoke test");
+  await guest.next((message) => message.type === "snapshot" && !message.snapshot.seats.player.connected && message.snapshot.seats.player.reconnectDeadline !== null);
+  const reconnectedHost = openSeat(hostCredential);
+  const restored = await reconnectedHost.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing" && allConnected(message.snapshot, commanders));
+  assert.equal(restored.snapshot.game.buildings.length, 2);
+
+  guest.send({ type: "leave_room" });
+  const forfeited = await reconnectedHost.next((message) => message.type === "snapshot" && message.snapshot.phase === "match_complete" && message.snapshot.game?.status === "won");
+  assert.equal(forfeited.snapshot.seats.enemy.claimed, false);
+  reconnectedHost.send({ type: "leave_room" });
+}
+
+async function runTwoVersusTwo() {
+  const credentials = [];
+  const host = await post("/api/multiplayer/rooms", { faction: "daybreak", mode: "2v2" });
+  credentials.push(host);
+  credentials.push(await post(`/api/multiplayer/rooms/${host.roomCode}/join`, { faction: "stormglass" }));
+  credentials.push(await post(`/api/multiplayer/rooms/${host.roomCode}/join`, { faction: "briarcrown" }));
+  credentials.push(await post(`/api/multiplayer/rooms/${host.roomCode}/join`, { faction: "daybreak" }));
+  assert.deepEqual(credentials.map((credential) => credential.commander), ["player", "enemy", "player_ally", "enemy_ally"]);
+  assert.ok(credentials.every((credential) => credential.mode === "2v2"));
+
+  const seats = credentials.map(openSeat);
+  const commanders = credentials.map((credential) => credential.commander);
+  await Promise.all(seats.map((seat) => seat.next((message) => message.type === "snapshot" && allConnected(message.snapshot, commanders))));
+  seats.forEach((seat) => seat.send({ type: "set_ready", ready: true }));
+  await Promise.all(seats.map((seat) => seat.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing")));
+
+  const commands = [
+    { action: "place_building", kind: "dawn_bastion", gridX: 9, gridY: 4 },
+    { action: "place_building", kind: "storm_coilforge", gridX: 80, gridY: 4 },
+    { action: "place_building", kind: "briar_hollow", gridX: 9, gridY: 16 },
+    { action: "place_building", kind: "dawn_bastion", gridX: 80, gridY: 16 },
+  ];
+  seats.forEach((seat, index) => seat.send({ type: "command", seq: 1, command: commands[index] }));
+  const built = await seats[0].next((message) => message.type === "snapshot" && message.snapshot.game?.buildings.length === 4);
+  assert.deepEqual(new Set(built.snapshot.game.buildings.map((building) => building.commander)), new Set(commanders));
+  assert.equal(built.snapshot.game.resources.player_ally.marks, 408);
+  assert.equal(built.snapshot.game.resources.player.marks, 410);
+
+  seats[2].socket.close(1000, "2v2 ally reconnect smoke test");
+  await seats[0].next((message) => message.type === "snapshot" && !message.snapshot.seats.player_ally.connected && message.snapshot.seats.player_ally.reconnectDeadline !== null);
+  const restoredAlly = openSeat(credentials[2]);
+  const restored = await restoredAlly.next((message) => message.type === "snapshot" && message.snapshot.phase === "playing" && allConnected(message.snapshot, commanders));
+  assert.equal(restored.snapshot.game.buildings.length, 4);
+
+  seats[3].send({ type: "leave_room" });
+  const forfeited = await seats[0].next((message) => message.type === "snapshot" && message.snapshot.phase === "match_complete" && message.snapshot.game?.status === "won");
+  assert.equal(forfeited.snapshot.seats.enemy_ally.claimed, false);
+  seats[0].send({ type: "leave_room" });
+  seats[1].socket.close();
+  restoredAlly.socket.close();
+}
+
+await runOneVersusOne();
+await runTwoVersusTwo();
+console.log("Keepstorm live 1v1 and 2v2 multiplayer smoke passed.");

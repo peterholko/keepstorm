@@ -50,6 +50,11 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .faction-picker button span { min-width: 0; display: grid; gap: 2px; }
 .faction-picker button b { overflow: hidden; font: 700 12px var(--serif); text-overflow: ellipsis; white-space: nowrap; }
 .faction-picker button small { color: rgba(255, 242, 210, .55); font-size: 7px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.match-mode-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; max-width: 490px; margin-top: 9px; }
+.match-mode-picker button { display: grid; gap: 3px; padding: 10px 12px; background: rgba(10, 15, 11, .76); border: 1px solid rgba(255, 242, 210, .18); color: rgba(255, 242, 210, .64); text-align: left; cursor: pointer; backdrop-filter: blur(8px); }
+.match-mode-picker button:hover, .match-mode-picker button.is-selected { background: rgba(240, 189, 72, .12); border-color: var(--gold); color: var(--cream); transform: translateY(-1px); }
+.match-mode-picker b { font: 700 13px var(--serif); }
+.match-mode-picker small { font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .hero-actions { display: flex; align-items: center; gap: 10px; margin-top: 25px; }
 .primary-button--hero { min-width: 300px; }
 .online-create-button { min-width: 176px; color: var(--cream); }
@@ -71,7 +76,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 
 /* Online room */
 .lobby-backdrop { z-index: 60; }
-.lobby-modal { position: relative; width: min(650px, 100%); padding: clamp(24px, 4vw, 42px); overflow: auto; background: linear-gradient(145deg, #2b3528, #121812 72%); border: 1px solid rgba(255, 225, 123, .38); border-top: 4px solid var(--gold); box-shadow: 0 30px 90px rgba(0, 0, 0, .7); }
+.lobby-modal { position: relative; width: min(760px, 100%); max-height: calc(100svh - 48px); padding: clamp(24px, 4vw, 42px); overflow: auto; background: linear-gradient(145deg, #2b3528, #121812 72%); border: 1px solid rgba(255, 225, 123, .38); border-top: 4px solid var(--gold); box-shadow: 0 30px 90px rgba(0, 0, 0, .7); }
 .lobby-modal h2 { margin: 9px 0 7px; font: 700 clamp(30px, 5vw, 48px)/.95 var(--serif); letter-spacing: -.035em; }
 .lobby-modal > p { margin: 0 0 19px; color: rgba(255, 242, 210, .65); font: 14px/1.45 var(--serif); }
 .room-code-panel { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 14px 16px; background: rgba(240, 189, 72, .08); border: 1px solid rgba(255, 225, 123, .26); }
@@ -82,6 +87,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .lobby-seats article { min-width: 0; display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 10px; padding: 12px; background: rgba(255, 242, 210, .035); border: 1px solid var(--line); opacity: .7; }
 .lobby-seats article.is-claimed { opacity: 1; }
 .lobby-seats article.is-you { border-color: rgba(255, 225, 123, .5); }
+.lobby-seats article.is-ally { border-color: rgba(113, 233, 195, .32); }
 .lobby-seats article > i { display: grid; place-items: center; width: 42px; height: 42px; background: rgba(255, 242, 210, .12); color: #162016; font: 900 20px var(--serif); font-style: normal; clip-path: polygon(50% 0, 93% 24%, 83% 84%, 50% 100%, 17% 84%, 7% 24%); }
 .lobby-seats article > div { min-width: 0; display: grid; gap: 3px; }
 .lobby-seats small { color: var(--gold); font-size: 6px; font-weight: 900; letter-spacing: .14em; }
@@ -299,6 +305,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
   .faction-picker { grid-template-columns: 1fr; }
   .faction-picker button { grid-template-columns: 30px 1fr; }
   .faction-picker button i { width: 30px; height: 30px; }
+  .match-mode-picker { grid-template-columns: 1fr; max-width: none; }
   .hero-actions { align-items: stretch; flex-direction: column; gap: 6px; }
   .primary-button--hero { min-width: 0; width: 100%; }
   .online-create-button { width: 100%; }

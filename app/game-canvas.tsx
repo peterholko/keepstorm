@@ -493,13 +493,18 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     };
   }, [art, hover, hoverValidation, localCommander, localTeam, renderScale, selected, selectedBuildingId, state]);
 
-  const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>, liftY = 0): HoverCell => {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  const cellFromClientPoint = (clientX: number, clientY: number, liftY = 0): HoverCell | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
     return {
-      ...placementCellFromClientPoint(event.clientX, event.clientY, bounds, liftY),
+      ...placementCellFromClientPoint(clientX, clientY, canvas.getBoundingClientRect(), liftY),
       source: "pointer",
     };
   };
+
+  const cellFromPointer = (event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, liftY = 0): HoverCell | null => (
+    cellFromClientPoint(event.clientX, event.clientY, liftY)
+  );
 
   const updateHover = (cell: HoverCell | null) => {
     setHover(cell);
@@ -517,11 +522,13 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
 
   const commitPlacement = () => commitPlacementAt(hover);
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleBuildZonePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button === 2) {
+      event.preventDefault();
       onCancelSelection();
       return;
     }
+    canvasRef.current?.focus({ preventScroll: true });
     if (event.pointerType !== "touch" || !event.isPrimary || !selected) return;
     event.preventDefault();
     touchPlacementPointerRef.current = event.pointerId;
@@ -529,7 +536,7 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     updateHover(cellFromPointer(event, TOUCH_PLACEMENT_LIFT_PX));
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleBuildZonePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "touch") {
       if (!selected || touchPlacementPointerRef.current !== event.pointerId) return;
       event.preventDefault();
@@ -539,7 +546,7 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     updateHover(cellFromPointer(event));
   };
 
-  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleBuildZonePointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType !== "touch" || touchPlacementPointerRef.current !== event.pointerId) return;
     event.preventDefault();
     const cell = cellFromPointer(event, TOUCH_PLACEMENT_LIFT_PX);
@@ -550,12 +557,19 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const cancelTouchPlacement = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const cancelTouchPlacement = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (touchPlacementPointerRef.current !== event.pointerId) return;
     touchPlacementPointerRef.current = null;
     lastTouchPlacementAtRef.current = performance.now();
     updateHover(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const handleBuildZoneClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (performance.now() - lastTouchPlacementAtRef.current < 700) return;
+    const cell = cellFromPointer(event);
+    updateHover(cell);
+    commitPlacementAt(cell);
   };
 
   const selectAtCell = (cell: GridPoint) => {
@@ -600,25 +614,31 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
             width={Math.round(WORLD_WIDTH * renderScale)}
             height={Math.round(WORLD_HEIGHT * renderScale)}
             className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
-            aria-label="A double-width battlefield. Scroll horizontally and choose a structure below. With a mouse, click to build. On a touch screen, press and drag the lifted preview, then release to build. With no structure selected, choose one of your buildings to inspect it."
+            aria-label="A double-width battlefield. Scroll horizontally and choose a structure below. With a mouse, click in a highlighted build yard to build. On a touch screen, drag and release inside a highlighted build yard; swipe elsewhere to move the battlefield. With no structure selected, choose one of your buildings to inspect it."
             tabIndex={0}
-            onPointerMove={handlePointerMove}
+            onPointerMove={(event) => {
+              if (event.pointerType === "touch") return;
+              updateHover(cellFromPointer(event));
+            }}
             onPointerLeave={(event) => {
-              if (event.pointerType === "touch" && touchPlacementPointerRef.current === event.pointerId) return;
+              if (event.pointerType === "touch") return;
               updateHover(null);
             }}
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={cancelTouchPlacement}
-            onLostPointerCapture={(event) => {
-              if (touchPlacementPointerRef.current !== event.pointerId) return;
-              touchPlacementPointerRef.current = null;
-              updateHover(null);
+            onPointerDown={(event) => {
+              if (event.button === 2) onCancelSelection();
+              if (event.pointerType === "touch" && selected) lastTouchPlacementAtRef.current = performance.now();
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === "touch" && selected) lastTouchPlacementAtRef.current = performance.now();
+            }}
+            onPointerCancel={(event) => {
+              if (event.pointerType === "touch" && selected) lastTouchPlacementAtRef.current = performance.now();
             }}
             onClick={(event) => {
               if (performance.now() - lastTouchPlacementAtRef.current < 700) return;
               const cell = cellFromPointer(event);
               updateHover(cell);
+              if (!cell) return;
               if (!selected) { selectAtCell(cell); return; }
               const validation = validatePlacement(state, localCommander, selected, cell.x, cell.y);
               onHoverMessage(validation.reason);
@@ -653,6 +673,42 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
               });
             }}
           />
+          {selected && (
+            <div className="build-zone-input-layer" aria-hidden="true">
+              {buildAreasForCommander(state, localCommander).map((zone, index) => (
+                <button
+                  key={`${zone.minX}-${zone.minY}-${index}`}
+                  type="button"
+                  tabIndex={-1}
+                  className="build-zone-input"
+                  style={{
+                    left: `${zone.minX / GRID_COLUMNS * 100}%`,
+                    top: `${zone.minY / GRID_ROWS * 100}%`,
+                    width: `${(zone.maxX - zone.minX + 1) / GRID_COLUMNS * 100}%`,
+                    height: `${(zone.maxY - zone.minY + 1) / GRID_ROWS * 100}%`,
+                  }}
+                  onPointerDown={handleBuildZonePointerDown}
+                  onPointerMove={handleBuildZonePointerMove}
+                  onPointerUp={handleBuildZonePointerUp}
+                  onPointerCancel={cancelTouchPlacement}
+                  onLostPointerCapture={(event) => {
+                    if (touchPlacementPointerRef.current !== event.pointerId) return;
+                    touchPlacementPointerRef.current = null;
+                    updateHover(null);
+                  }}
+                  onPointerLeave={(event) => {
+                    if (event.pointerType === "touch" && touchPlacementPointerRef.current === event.pointerId) return;
+                    updateHover(null);
+                  }}
+                  onClick={handleBuildZoneClick}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    onCancelSelection();
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div className="camera-controls" aria-label="Battlefield camera controls">

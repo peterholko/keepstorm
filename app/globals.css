@@ -144,7 +144,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .battlefield-map, .battlefield-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .battlefield-map { object-fit: fill; pointer-events: none; user-select: none; }
 .battlefield-canvas { background: transparent; touch-action: pan-x; }
-.battlefield-canvas.is-building { cursor: crosshair; }
+.battlefield-canvas.is-building { cursor: crosshair; touch-action: none; }
 .camera-controls { position: absolute; z-index: 6; left: 50%; top: 12px; transform: translateX(-50%); display: grid; grid-template-columns: 31px minmax(150px, 220px) 31px; align-items: stretch; overflow: hidden; background: rgba(10, 15, 11, .86); border: 1px solid rgba(255, 225, 123, .34); border-bottom-color: var(--gold); box-shadow: 0 8px 24px rgba(0, 0, 0, .32); backdrop-filter: blur(8px); }
 .camera-controls > button { border: 0; background: rgba(255, 242, 210, .06); color: var(--gold-bright); cursor: pointer; font: 700 22px/1 var(--serif); }
 .camera-controls > button:hover { background: rgba(240, 189, 72, .18); }

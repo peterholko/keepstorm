@@ -175,7 +175,7 @@ function TutorialCard({ game, localCommander, selected, onDismiss }: { game: Gam
       <span className="tutorial-step">FIRST COMMAND · {hasBuilding ? "03" : selected ? "02" : "01"} / 03</span>
       <button onClick={onDismiss} aria-label="Dismiss tutorial">×</button>
       {!hasBuilding && !selected && <><b>Choose the opening answer</b><p>Start in Troops or invest in Works. Damage and armor labels reveal what each cohort can counter.</p></>}
-      {!hasBuilding && selected && <><b>Choose its X/Y position</b><p>Click a gold square in either half of your yard. The dotted line previews the cohort’s path.</p></>}
+      {!hasBuilding && selected && <><b>Choose its X/Y position</b><p>Click a gold square, or on touch screens drag the lifted preview and release. The dotted line previews the cohort’s path.</p></>}
       {hasBuilding && <><b>Grow, scout, adapt</b><p>Earn Marks every seven seconds and Timber from construction. Click a placed structure to upgrade or hold its production.</p></>}
     </aside>
   );
@@ -510,7 +510,7 @@ export default function Home() {
           <small>{commanderLabel(localCommander).toUpperCase()} · {FACTIONS[game.factions[localCommander]].name.toUpperCase()}{ally ? ` · ALLY ${FACTIONS[game.factions[ally]].name.toUpperCase()}` : ""}</small>
         </div>
         <div className={`resource-panel resource-panel--${rivalTeam} is-rival`}><span>{game.matchMode === "2v2" ? "RIVAL TEAM FORCES" : "RIVAL FORCES"}</span><b>{buildingCount(game, rivalTeam)} WORKS · {unitCount(game, rivalTeam)} AFIELD</b><small>{teamDisplayName(game, rivalTeam)} · +{incomeFor(game, rivalTeam)} recurring Marks</small></div>
-        <div className={`event-ribbon${hoverMessage && selected ? " is-placement" : ""}`} role="status" aria-live="polite"><i /><span>{hoverMessage && selected ? hoverMessage : game.event}</span>{selectedDescription && <small>{selectedDescription}</small>}</div>
+        <div className={`event-ribbon${selected ? " is-placement" : ""}`} role="status" aria-live="polite"><i /><span>{selected ? hoverMessage ?? "Touch and drag the lifted preview · Release to build · Click on desktop" : game.event}</span>{selectedDescription && <small>{selectedDescription}</small>}</div>
         {tutorial && game.status === "playing" && <TutorialCard game={game} localCommander={localCommander} selected={selected} onDismiss={() => setTutorial(false)} />}
       </section>
       <CommandDeck

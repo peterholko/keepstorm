@@ -37,6 +37,7 @@ import {
   stationaryUnitMotion,
   type UnitMotion,
 } from "@/lib/keepstorm/render-motion";
+import { placementCellFromClientPoint, TOUCH_PLACEMENT_LIFT_PX } from "@/lib/keepstorm/placement-input";
 import { drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
 
 interface LoadedArt {
@@ -317,6 +318,8 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
   const unitMotionsRef = useRef<Map<number, UnitMotion>>(new Map());
   const previousElapsedRef = useRef<number | null>(null);
   const snapshotAtRef = useRef(0);
+  const touchPlacementPointerRef = useRef<number | null>(null);
+  const lastTouchPlacementAtRef = useRef(-Infinity);
 
   useEffect(() => {
     let active = true;
@@ -450,16 +453,14 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
         context.lineWidth = 4;
         context.fillRect(x + 2, y + 2, spec.width * CELL_SIZE - 4, spec.height * CELL_SIZE - 4);
         context.strokeRect(x + 2, y + 2, spec.width * CELL_SIZE - 4, spec.height * CELL_SIZE - 4);
-        if (hoverValidation.valid) {
-          drawRoute(context, hoverValidation.path);
-          context.save();
-          context.globalAlpha = .72;
-          const dimensions = buildingDimensions({ kind: selected } as Building);
-          const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
-          const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
-          drawAtlasCell(context, art.factions[renderState.factions[localCommander]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
-          context.restore();
-        }
+        if (hoverValidation.valid) drawRoute(context, hoverValidation.path);
+        context.save();
+        context.globalAlpha = hoverValidation.valid ? .72 : .42;
+        const dimensions = buildingDimensions({ kind: selected } as Building);
+        const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
+        const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
+        drawAtlasCell(context, art.factions[renderState.factions[localCommander]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
+        context.restore();
       }
 
       drawKeep(context, renderState, "player", art.keeps.player);
@@ -492,11 +493,10 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     };
   }, [art, hover, hoverValidation, localCommander, localTeam, renderScale, selected, selectedBuildingId, state]);
 
-  const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {
+  const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>, liftY = 0): HoverCell => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return {
-      x: Math.max(0, Math.min(GRID_COLUMNS - 1, Math.floor((event.clientX - bounds.left) / bounds.width * WORLD_WIDTH / CELL_SIZE))),
-      y: Math.max(0, Math.min(GRID_ROWS - 1, Math.floor((event.clientY - bounds.top) / bounds.height * WORLD_HEIGHT / CELL_SIZE))),
+      ...placementCellFromClientPoint(event.clientX, event.clientY, bounds, liftY),
       source: "pointer",
     };
   };
@@ -507,11 +507,55 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     else onHoverMessage(validatePlacement(state, localCommander, selected, cell.x, cell.y).reason);
   };
 
-  const commitPlacement = () => {
-    if (!selected || !hover) return;
-    const validation = validatePlacement(state, localCommander, selected, hover.x, hover.y);
+  const commitPlacementAt = (cell: GridPoint | null): boolean => {
+    if (!selected || !cell) return false;
+    const validation = validatePlacement(state, localCommander, selected, cell.x, cell.y);
     onHoverMessage(validation.reason);
-    if (validation.valid) onPlace(selected, hover.x, hover.y);
+    if (validation.valid) onPlace(selected, cell.x, cell.y);
+    return validation.valid;
+  };
+
+  const commitPlacement = () => commitPlacementAt(hover);
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.button === 2) {
+      onCancelSelection();
+      return;
+    }
+    if (event.pointerType !== "touch" || !event.isPrimary || !selected) return;
+    event.preventDefault();
+    touchPlacementPointerRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateHover(cellFromPointer(event, TOUCH_PLACEMENT_LIFT_PX));
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch") {
+      if (!selected || touchPlacementPointerRef.current !== event.pointerId) return;
+      event.preventDefault();
+      updateHover(cellFromPointer(event, TOUCH_PLACEMENT_LIFT_PX));
+      return;
+    }
+    updateHover(cellFromPointer(event));
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType !== "touch" || touchPlacementPointerRef.current !== event.pointerId) return;
+    event.preventDefault();
+    const cell = cellFromPointer(event, TOUCH_PLACEMENT_LIFT_PX);
+    touchPlacementPointerRef.current = null;
+    lastTouchPlacementAtRef.current = performance.now();
+    updateHover(cell);
+    if (commitPlacementAt(cell)) updateHover(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const cancelTouchPlacement = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (touchPlacementPointerRef.current !== event.pointerId) return;
+    touchPlacementPointerRef.current = null;
+    lastTouchPlacementAtRef.current = performance.now();
+    updateHover(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   const selectAtCell = (cell: GridPoint) => {
@@ -556,12 +600,23 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
             width={Math.round(WORLD_WIDTH * renderScale)}
             height={Math.round(WORLD_HEIGHT * renderScale)}
             className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
-            aria-label="A double-width battlefield. Scroll horizontally, choose a structure below, place it in your illuminated construction yard, or click one of your structures to inspect and upgrade it."
+            aria-label="A double-width battlefield. Scroll horizontally and choose a structure below. With a mouse, click to build. On a touch screen, press and drag the lifted preview, then release to build. With no structure selected, choose one of your buildings to inspect it."
             tabIndex={0}
-            onPointerMove={(event) => updateHover(cellFromPointer(event))}
-            onPointerLeave={() => updateHover(null)}
-            onPointerDown={(event) => { if (event.button === 2) onCancelSelection(); }}
+            onPointerMove={handlePointerMove}
+            onPointerLeave={(event) => {
+              if (event.pointerType === "touch" && touchPlacementPointerRef.current === event.pointerId) return;
+              updateHover(null);
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={cancelTouchPlacement}
+            onLostPointerCapture={(event) => {
+              if (touchPlacementPointerRef.current !== event.pointerId) return;
+              touchPlacementPointerRef.current = null;
+              updateHover(null);
+            }}
             onClick={(event) => {
+              if (performance.now() - lastTouchPlacementAtRef.current < 700) return;
               const cell = cellFromPointer(event);
               updateHover(cell);
               if (!selected) { selectAtCell(cell); return; }

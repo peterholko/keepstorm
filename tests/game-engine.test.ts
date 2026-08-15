@@ -35,6 +35,7 @@ import {
   sampleUnitMotion,
   stationaryUnitMotion,
 } from "../lib/keepstorm/render-motion.ts";
+import { placementCellFromClientPoint, TOUCH_PLACEMENT_LIFT_PX } from "../lib/keepstorm/placement-input.ts";
 
 function advance(state: GameState, seconds: number): GameState {
   let current = state;
@@ -64,6 +65,17 @@ function testUnit(id: number, team: Team, kind: UnitKind, x: number, cooldown = 
     stunTimer: 0,
   };
 }
+
+test("touch placement lifts the preview above the finger and clamps it to the battlefield", () => {
+  const bounds = { left: 100, top: 50, width: 1000, height: 280 };
+  const direct = placementCellFromClientPoint(600, 190, bounds);
+  const lifted = placementCellFromClientPoint(600, 190, bounds, TOUCH_PLACEMENT_LIFT_PX);
+
+  assert.deepEqual(direct, { x: 50, y: 14 });
+  assert.deepEqual(lifted, { x: 50, y: 8 });
+  assert.equal(placementCellFromClientPoint(50, 40, bounds, TOUCH_PLACEMENT_LIFT_PX).x, 0);
+  assert.equal(placementCellFromClientPoint(600, 40, bounds, TOUCH_PLACEMENT_LIFT_PX).y, 0);
+});
 
 test("each original faction has five troop lines and three strategic works", () => {
   for (const faction of Object.keys(FACTIONS) as Array<keyof typeof FACTIONS>) {

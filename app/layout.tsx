@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://keepstorm.com"),
   title: "Keepstorm",
   description:
     "A browser strategy game where buildings create units automatically and players race to destroy the enemy Keep.",

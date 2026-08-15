@@ -38,7 +38,9 @@ test("renders the first step of the Keepstorm start flow", async () => {
   assert.match(html, /Enter a code from a friend/);
   assert.match(html, /<button(?=[^>]*data-mode="join")(?=[^>]*disabled="")[^>]*>/);
   assert.match(html, /How to play/);
-  assert.match(html, /og\.png/);
+  assert.match(html, /<meta property="og:image" content="https:\/\/keepstorm\.com\/og\.png"\/>/);
+  assert.match(html, /<meta name="twitter:image" content="https:\/\/keepstorm\.com\/og\.png"\/>/);
+  assert.doesNotMatch(html, /localhost(?::\d+)?\/og\.png/);
   assert.match(html, /keepstorm-crest-v1\.png/);
   assert.match(html, /favicon\.ico/);
   assert.match(html, /apple-touch-icon\.png/);

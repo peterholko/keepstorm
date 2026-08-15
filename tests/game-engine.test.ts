@@ -29,6 +29,12 @@ import {
   type Unit,
   type UnitKind,
 } from "../lib/keepstorm/engine.ts";
+import {
+  motionDurationForSnapshots,
+  retargetUnitMotion,
+  sampleUnitMotion,
+  stationaryUnitMotion,
+} from "../lib/keepstorm/render-motion.ts";
 
 function advance(state: GameState, seconds: number): GameState {
   let current = state;
@@ -304,4 +310,18 @@ test("the battlefield remains a sharp double-width one-hundred-column world", ()
   assert.equal(WORLD_WIDTH, 3200);
   assert.equal(GRID_COLUMNS, 100);
   assert.ok(KEEP_POSITIONS.enemy.x - KEEP_POSITIONS.player.x > 2800);
+});
+
+test("unit rendering fills the gaps between simulation snapshots", () => {
+  const initial = stationaryUnitMotion({ x: 100, y: 200 }, 0);
+  const moving = retargetUnitMotion(initial, { x: 200, y: 260 }, 0, 100);
+  assert.deepEqual(sampleUnitMotion(moving, 50), { x: 150, y: 230 });
+  assert.deepEqual(sampleUnitMotion(moving, 100), { x: 200, y: 260 });
+});
+
+test("unit rendering retargets from its visible position without a jump", () => {
+  const first = retargetUnitMotion(stationaryUnitMotion({ x: 0, y: 0 }, 0), { x: 100, y: 0 }, 0, 100);
+  const second = retargetUnitMotion(first, { x: 200, y: 0 }, 50, motionDurationForSnapshots(1, 1.15));
+  assert.deepEqual(sampleUnitMotion(second, 50), { x: 50, y: 0 });
+  assert.ok(Math.abs(sampleUnitMotion(second, 125).x - 125) < .0001);
 });

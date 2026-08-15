@@ -30,6 +30,13 @@ import {
   type Team,
   type Unit,
 } from "@/lib/keepstorm/engine";
+import {
+  motionDurationForSnapshots,
+  retargetUnitMotion,
+  sampleUnitMotion,
+  stationaryUnitMotion,
+  type UnitMotion,
+} from "@/lib/keepstorm/render-motion";
 import { drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
 
 interface LoadedArt {
@@ -306,6 +313,9 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
   const [hover, setHover] = useState<HoverCell | null>(null);
   const [scrollRatio, setScrollRatio] = useState(0);
   const [renderScale, setRenderScale] = useState(1);
+  const unitMotionsRef = useRef<Map<number, UnitMotion>>(new Map());
+  const previousElapsedRef = useRef<number | null>(null);
+  const snapshotAtRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -366,63 +376,119 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
   }, [hover, localCommander, selected, state]);
 
   useEffect(() => {
+    const now = performance.now();
+    const previousElapsed = previousElapsedRef.current;
+    const reset = previousElapsed !== null && state.elapsed < previousElapsed;
+    const duration = motionDurationForSnapshots(previousElapsed, state.elapsed);
+    const previousMotions = unitMotionsRef.current;
+    const nextMotions = new Map<number, UnitMotion>();
+
+    for (const unit of state.units) {
+      const previous = previousMotions.get(unit.id);
+      const jumped = previous && Math.hypot(previous.toX - unit.x, previous.toY - unit.y) > CELL_SIZE * 8;
+      if (!previous || reset || jumped) {
+        nextMotions.set(unit.id, stationaryUnitMotion(unit, now));
+      } else if (previous.toX === unit.x && previous.toY === unit.y) {
+        nextMotions.set(unit.id, previous);
+      } else {
+        nextMotions.set(unit.id, retargetUnitMotion(previous, unit, now, duration));
+      }
+    }
+
+    unitMotionsRef.current = nextMotions;
+    previousElapsedRef.current = state.elapsed;
+    snapshotAtRef.current = now;
+  }, [state]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !art) return;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.setTransform(renderScale, 0, 0, renderScale, 0, 0);
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    context.fillStyle = "rgba(10, 16, 9, .055)";
-    context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const shouldAnimate = !reducedMotion && state.status === "playing" && (state.units.length > 0 || state.effects.length > 0);
+    let animationFrame = 0;
+    let active = true;
 
-    drawGrid(context, state, "player", false);
-    drawGrid(context, state, "enemy", false);
-    if (selected) drawGrid(context, state, localTeam, true, buildAreasForCommander(state, localCommander));
+    const drawFrame = (now: number) => {
+      const snapshotAge = reducedMotion ? 0 : Math.max(0, Math.min(.25, (now - snapshotAtRef.current) / 1000));
+      const renderState: GameState = {
+        ...state,
+        elapsed: state.elapsed + snapshotAge,
+        units: state.units.map((unit) => {
+          const position = reducedMotion ? unit : sampleUnitMotion(unitMotionsRef.current.get(unit.id) ?? stationaryUnitMotion(unit, now), now);
+          return { ...unit, ...position, attackFlash: Math.max(0, unit.attackFlash - snapshotAge) };
+        }),
+        buildings: state.buildings.map((building) => {
+          const commander = commanderForBuilding(building);
+          const running = !building.productionPaused && !state.syncEnabled[commander];
+          return running ? { ...building, spawnClock: Math.max(0, building.spawnClock - snapshotAge) } : building;
+        }),
+        effects: state.effects.map((effect) => ({ ...effect, life: effect.life - snapshotAge })).filter((effect) => effect.life > 0),
+      };
 
-    if (selected && hover && hoverValidation) {
-      const spec = BUILDING_SPECS[selected];
-      const color = hoverValidation.valid ? "#ffe078" : "#f06b55";
-      const x = hover.x * CELL_SIZE;
-      const y = hover.y * CELL_SIZE;
-      context.fillStyle = `${color}45`;
-      context.strokeStyle = color;
-      context.lineWidth = 4;
-      context.fillRect(x + 2, y + 2, spec.width * CELL_SIZE - 4, spec.height * CELL_SIZE - 4);
-      context.strokeRect(x + 2, y + 2, spec.width * CELL_SIZE - 4, spec.height * CELL_SIZE - 4);
-      if (hoverValidation.valid) {
-        drawRoute(context, hoverValidation.path);
-        context.save();
-        context.globalAlpha = .72;
-        const dimensions = buildingDimensions({ kind: selected } as Building);
-        const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
-        const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
-        drawAtlasCell(context, art.factions[state.factions[localCommander]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
-        context.restore();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.fillStyle = "rgba(10, 16, 9, .055)";
+      context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+      drawGrid(context, renderState, "player", false);
+      drawGrid(context, renderState, "enemy", false);
+      if (selected) drawGrid(context, renderState, localTeam, true, buildAreasForCommander(renderState, localCommander));
+
+      if (selected && hover && hoverValidation) {
+        const spec = BUILDING_SPECS[selected];
+        const color = hoverValidation.valid ? "#ffe078" : "#f06b55";
+        const x = hover.x * CELL_SIZE;
+        const y = hover.y * CELL_SIZE;
+        context.fillStyle = `${color}45`;
+        context.strokeStyle = color;
+        context.lineWidth = 4;
+        context.fillRect(x + 2, y + 2, spec.width * CELL_SIZE - 4, spec.height * CELL_SIZE - 4);
+        context.strokeRect(x + 2, y + 2, spec.width * CELL_SIZE - 4, spec.height * CELL_SIZE - 4);
+        if (hoverValidation.valid) {
+          drawRoute(context, hoverValidation.path);
+          context.save();
+          context.globalAlpha = .72;
+          const dimensions = buildingDimensions({ kind: selected } as Building);
+          const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
+          const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
+          drawAtlasCell(context, art.factions[renderState.factions[localCommander]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
+          context.restore();
+        }
       }
-    }
 
-    drawKeep(context, state, "player", art.keeps.player);
-    drawKeep(context, state, "enemy", art.keeps.enemy);
+      drawKeep(context, renderState, "player", art.keeps.player);
+      drawKeep(context, renderState, "enemy", art.keeps.enemy);
 
-    const fieldObjects: Array<{ y: number; draw: () => void }> = [];
-    for (const building of state.buildings) {
-      const spec = BUILDING_SPECS[building.kind];
-      fieldObjects.push({
-        y: (building.gridY + spec.height) * CELL_SIZE,
-        draw: () => drawBuilding(context, state, building, art.factions[state.factions[commanderForBuilding(building)]], selectedBuildingId === building.id),
-      });
-    }
-    for (const unit of state.units) {
-      fieldObjects.push({
-        y: unit.y,
-        draw: () => drawUnit(context, state, unit, art.factions[state.factions[commanderForUnit(unit)]]),
-      });
-    }
-    fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
-    drawEffects(context, state);
+      const fieldObjects: Array<{ y: number; draw: () => void }> = [];
+      for (const building of renderState.buildings) {
+        const spec = BUILDING_SPECS[building.kind];
+        fieldObjects.push({
+          y: (building.gridY + spec.height) * CELL_SIZE,
+          draw: () => drawBuilding(context, renderState, building, art.factions[renderState.factions[commanderForBuilding(building)]], selectedBuildingId === building.id),
+        });
+      }
+      for (const unit of renderState.units) {
+        fieldObjects.push({
+          y: unit.y,
+          draw: () => drawUnit(context, renderState, unit, art.factions[renderState.factions[commanderForUnit(unit)]]),
+        });
+      }
+      fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
+      drawEffects(context, renderState);
+
+      if (active && shouldAnimate) animationFrame = window.requestAnimationFrame(drawFrame);
+    };
+
+    drawFrame(performance.now());
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(animationFrame);
+    };
   }, [art, hover, hoverValidation, localCommander, localTeam, renderScale, selected, selectedBuildingId, state]);
 
   const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {

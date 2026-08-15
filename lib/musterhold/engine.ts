@@ -352,12 +352,30 @@ function cellsForBuilding(building: Pick<Building, "gridX" | "gridY" | "kind">):
   return cells;
 }
 
-function spawnCell(building: Pick<Building, "team" | "gridX" | "gridY" | "kind">): GridPoint {
+function centeredOffsets(length: number): number[] {
+  const center = Math.floor((length - 1) / 2);
+  return Array.from({ length }, (_, index) => index).sort((left, right) => Math.abs(left - center) - Math.abs(right - center));
+}
+
+function exitCells(building: Pick<Building, "team" | "gridX" | "gridY" | "kind">): GridPoint[] {
   const spec = BUILDING_SPECS[building.kind];
-  return {
-    x: building.team === "player" ? building.gridX + spec.width : building.gridX - 1,
-    y: building.gridY + Math.floor(spec.height / 2),
-  };
+  const yOffsets = centeredOffsets(spec.height);
+  const xOffsets = centeredOffsets(spec.width);
+  const forwardX = building.team === "player" ? building.gridX + spec.width : building.gridX - 1;
+  const rearX = building.team === "player" ? building.gridX - 1 : building.gridX + spec.width;
+  const candidates: GridPoint[] = [
+    ...yOffsets.map((offset) => ({ x: forwardX, y: building.gridY + offset })),
+    ...xOffsets.map((offset) => ({ x: building.gridX + offset, y: building.gridY - 1 })),
+    ...xOffsets.map((offset) => ({ x: building.gridX + offset, y: building.gridY + spec.height })),
+    ...yOffsets.map((offset) => ({ x: rearX, y: building.gridY + offset })),
+  ];
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = gridKey(candidate);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function cellCenter(point: GridPoint): Point {
@@ -400,6 +418,20 @@ function blockedCells(buildings: Array<Pick<Building, "gridX" | "gridY" | "kind"
   return blocked;
 }
 
+function findBuildingExitPath(
+  building: Pick<Building, "team" | "gridX" | "gridY" | "kind">,
+  blocked: Set<string>,
+): GridPoint[] | null {
+  const zone = NAV_ZONES[building.team];
+  for (const start of exitCells(building)) {
+    if (start.x < zone.minX || start.x > zone.maxX || start.y < zone.minY || start.y > zone.maxY) continue;
+    if (blocked.has(gridKey(start))) continue;
+    const path = findGridPath(start, GATE_CELLS[building.team], building.team, blocked);
+    if (path) return path;
+  }
+  return null;
+}
+
 export function validatePlacement(state: GameState, team: Team, kind: BuildingKind, gridX: number, gridY: number): PlacementValidation {
   const spec = BUILDING_SPECS[kind];
   if (state.status !== "playing") return { valid: false, reason: "The round is over." };
@@ -440,10 +472,8 @@ export function validatePlacement(state: GameState, team: Team, kind: BuildingKi
   let candidatePath: GridPoint[] | undefined;
   for (const building of teamBuildings) {
     if (!BUILDING_SPECS[building.kind].unitKind) continue;
-    const start = spawnCell(building);
-    if (blocked.has(gridKey(start))) return { valid: false, reason: "A cohort exit would be blocked." };
-    const path = findGridPath(start, GATE_CELLS[team], team, blocked);
-    if (!path) return { valid: false, reason: "That placement would trap a cohort inside the yard." };
+    const path = findBuildingExitPath(building, blocked);
+    if (!path) return { valid: false, reason: "That placement would seal every available cohort exit." };
     if (building.id === -1) candidatePath = path;
   }
 
@@ -592,7 +622,7 @@ export function buyShopItem(state: GameState, team: Team, item: ShopItemKind): G
 
 function buildingPath(state: GameState, building: Building, unitId: number): Point[] {
   const blocked = blockedCells(state.buildings.filter((candidate) => candidate.team === building.team));
-  const baseGridPath = findGridPath(spawnCell(building), GATE_CELLS[building.team], building.team, blocked) ?? [spawnCell(building), GATE_CELLS[building.team]];
+  const baseGridPath = findBuildingExitPath(building, blocked) ?? [GATE_CELLS[building.team]];
   const offset = ((unitId % 5) - 2) * 9;
   const lane = building.team === "player"
     ? LANE_PATH.map((point, index) => ({ x: point.x, y: point.y + (index > 0 && index < LANE_PATH.length - 1 ? offset : 0) }))
@@ -618,7 +648,7 @@ function spawnUnit(state: GameState, building: Building): GameState {
   if (!kind) return state;
   const spec = UNIT_SPECS[kind];
   const path = buildingPath(state, building, state.nextId);
-  const start = path[0] ?? cellCenter(spawnCell(building));
+  const start = path[0] ?? cellCenter(GATE_CELLS[building.team]);
   const scale = unitScale(building.level);
   const maxHp = Math.round(spec.maxHp * scale);
   const unit: Unit = {

@@ -90,6 +90,19 @@ test("placement respects faction, resources, split X/Y yards, footprints, and ex
   assert.match(validatePlacement(placed, "player", "dawn_quillery", 10, 5).reason, /occupies/i);
 });
 
+test("touching structures can share an edge and cohorts reroute around the block", () => {
+  let state = placeBuilding(createInitialState("daybreak"), "player", "dawn_bastion", 9, 4);
+  const adjacent = validatePlacement(state, "player", "dawn_quillery", 12, 4);
+  assert.equal(adjacent.valid, true);
+  assert.ok(adjacent.path);
+  state = placeBuilding(state, "player", "dawn_quillery", 12, 4);
+  assert.equal(state.buildings.length, 2);
+  state.aiClock = 100;
+  state.keepDefenseClock = 100;
+  state = advance(state, 3.3);
+  assert.deepEqual(new Set(state.units.filter((unit) => unit.team === "player").map((unit) => unit.kind)), new Set(["ramguard", "quillrunner"]));
+});
+
 test("normal structures grow income and Timber while economy works sacrifice cohorts for income", () => {
   const troopState = placeBuilding(createInitialState("daybreak"), "player", "dawn_bastion", 9, 4);
   assert.equal(incomeFor(troopState, "player"), 49);

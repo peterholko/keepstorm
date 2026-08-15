@@ -996,7 +996,27 @@ export function castReprieve(state: GameState, team: Team): GameState {
     nextId: state.nextId + 1,
   };
   const cleaned = collectDefeated(next);
-  return team === "player" ? withEvent(cleaned, "Reprieve! Invaders on your half were erased; the distant host was wounded.") : cleaned;
+  return withEvent(cleaned, team === "player"
+    ? "Reprieve! Invaders on your half were erased; the distant host was wounded."
+    : `${FACTIONS[state.factions.enemy].name} invoked Reprieve—your invading cohorts were erased and the rest were wounded.`);
+}
+
+function shouldBotCastReprieve(state: GameState): boolean {
+  if (!reprieveReady(state, "enemy")) return false;
+  const invaders = state.units.filter((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy"));
+  const closeThreats = invaders.filter((unit) => distance(unit, KEEP_POSITIONS.enemy) < 760);
+  const pressure = invaders.reduce((total, unit) => {
+    const spec = UNIT_SPECS[unit.kind];
+    const roleWeight = spec.role === "siege" ? 2.25 : spec.role === "vanguard" ? 1.25 : 1;
+    const proximityWeight = distance(unit, KEEP_POSITIONS.enemy) < 950 ? 1.5 : 1;
+    return total + unit.level * roleWeight * proximityWeight * Math.max(0.35, unit.hp / unit.maxHp);
+  }, 0);
+  const keepRatio = state.keeps.enemy / KEEP_MAX_HP;
+  return closeThreats.length >= 2
+    || invaders.length >= 4
+    || pressure >= 5.5
+    || (keepRatio < 0.7 && invaders.length >= 1)
+    || keepRatio < 0.4;
 }
 
 function dominantEnemyArmor(state: GameState, team: Team): ArmorType {
@@ -1060,9 +1080,6 @@ function aiPlace(state: GameState, preferred: BuildingKind): GameState {
 function runAi(state: GameState): GameState {
   if (!state.started) return state;
   let next = state;
-  const threatAtKeep = unitCount(next, "player") >= 5 && next.units.filter((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy")).length >= 5;
-  if (reprieveReady(next, "enemy") && (threatAtKeep || next.keeps.enemy < KEEP_MAX_HP * 0.48)) next = castReprieve(next, "enemy");
-
   if (next.keeps.enemy < KEEP_MAX_HP * 0.58 && canAfford(next.resources.enemy, SHOP_ITEMS.iron_writ.cost)) next = buyShopItem(next, "enemy", "iron_writ");
   if (buildingCount(next, "enemy") >= 7 && !next.rallyHorn.enemy && canAfford(next.resources.enemy, SHOP_ITEMS.rally_horn.cost)) next = buyShopItem(next, "enemy", "rally_horn");
   if (next.resources.enemy.sigils === 0 && next.resources.enemy.marks > 700 && canAfford(next.resources.enemy, SHOP_ITEMS.sigil_shard.cost)) next = buyShopItem(next, "enemy", "sigil_shard");
@@ -1193,6 +1210,8 @@ export function stepGame(input: GameState, dt: number): GameState {
     state = { ...state, keepDefenseClock: 1.15 };
   }
 
+  if (shouldBotCastReprieve(state)) state = castReprieve(state, "enemy");
+
   return resolveRound(state);
 }
 
@@ -1212,7 +1231,7 @@ export function matchReport(state: GameState, playtestAnswer?: string): string {
     `Cohorts raised: ${state.stats.unitsSpawned.player} / ${state.stats.unitsSpawned.enemy}`,
     `Bounty earned: ${state.stats.bountyEarned.player} / ${state.stats.bountyEarned.enemy}`,
     `Items commissioned: ${state.stats.itemsBought.player} / ${state.stats.itemsBought.enemy}`,
-    `Reprieve used this round: ${state.reprieveUsed.player ? "yes" : "no"}`,
+    `Reprieve used this round: ${state.reprieveUsed.player ? "yes" : "no"} / ${state.reprieveUsed.enemy ? "yes" : "no"}`,
     `What felt decisive: ${playtestAnswer || "not answered"}`,
     "Build: depth-alpha-0.2.0",
   ].join("\n");

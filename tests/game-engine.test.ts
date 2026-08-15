@@ -221,6 +221,25 @@ test("Reprieve clears the caster half, wounds the far half, and remains single-u
   assert.equal(castReprieve(after, "player"), after);
 });
 
+test("the bot continuously detects invasion pressure, casts Reprieve, and announces it", () => {
+  let state = createInitialState("daybreak", "stormglass");
+  state.started = true;
+  state.elapsed = REPRIEVE_READY_AT;
+  state.aiClock = 100;
+  state.keepDefenseClock = 100;
+  state.units = [
+    testUnit(20, "player", "ramguard", 1900, 100),
+    testUnit(21, "player", "quillrunner", 2100, 100),
+    testUnit(22, "player", "wispwright", 2300, 100),
+    testUnit(23, "player", "cinder_mortar", 2500, 100),
+  ];
+  state = stepGame(state, .1);
+  assert.equal(state.reprieveUsed.enemy, true);
+  assert.equal(state.units.filter((unit) => unit.team === "player").length, 0);
+  assert.match(state.event, /Stormglass Collegium invoked Reprieve/i);
+  assert.ok(state.effects.some((effect) => effect.type === "reprieve" && effect.team === "enemy"));
+});
+
 test("round victories persist into a first-to-two match", () => {
   let state = createInitialState("stormglass", "daybreak");
   state.started = true;

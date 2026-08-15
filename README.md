@@ -4,7 +4,7 @@
 
 Keepstorm is an original browser strategy game about building an army-producing yard in two dimensions. Place Foundries on an X/Y grid, preserve their routes to the gate, follow cohorts across a double-width scrolling battlefield, and break the rival Anchorhold before the five-minute ledger closes.
 
-This repository contains the closed Alpha: one complete solo skirmish against an adaptive Nightveil opponent, with finished original battlefield, faction, building, unit, icon, and title artwork.
+This repository contains the closed Alpha: a complete solo skirmish against an adaptive Nightveil opponent plus authoritative human 1v1 and 2v2 rooms, with finished original battlefield, faction, building, unit, icon, and title artwork.
 
 ## Run the Alpha
 
@@ -50,6 +50,14 @@ Open `http://localhost:3000` and choose **Begin solo skirmish**.
 npm test
 npm run lint
 npm run build
+```
+
+## Cloudflare deployment
+
+The full game, static assets, API, WebSockets, and per-room Durable Objects deploy together to `keepstorm.peterholko.com`:
+
+```bash
+npm run deploy:cloudflare
 ```
 
 The simulation is isolated in `lib/musterhold/engine.ts`; React owns controls and match presentation, while Canvas renders the battlefield and generated sprite atlases. See [docs/architecture.md](docs/architecture.md) for the technical shape and [docs/creative-direction.md](docs/creative-direction.md) for the original setting and asset grammar.

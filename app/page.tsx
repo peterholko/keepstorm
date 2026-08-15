@@ -63,6 +63,13 @@ const SHOP_GLYPHS: Record<ShopItemKind, string> = {
   sigil_shard: "✦",
 };
 
+function BrandMark() {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img className="brand-mark" src="/brand/keepstorm-crest-v1.png" alt="" aria-hidden="true" />
+  );
+}
+
 function formatClock(seconds: number): string {
   const whole = Math.max(0, Math.ceil(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
@@ -131,7 +138,7 @@ function TitleScreen({ faction, matchMode, joinCode, onlineBusy, onlineNotice, o
       <div className="title-art" aria-hidden="true" />
       <div className="title-vignette" aria-hidden="true" />
       <header className="title-header">
-        <span className="brand-rune">K</span>
+        <BrandMark />
         <strong>KEEPSTORM</strong>
         <span className="alpha-label">TEAM ALPHA · 0.4</span>
       </header>
@@ -311,7 +318,7 @@ function GameHeader({ game, onRules, onPause, onLeave }: { game: GameState; onRu
   const enemyFaction = FACTIONS[game.factions.enemy];
   return (
     <header className="game-header">
-      <button className="game-brand" onClick={onLeave} aria-label="Return to title screen"><span className="brand-rune">K</span><strong>KEEPSTORM</strong></button>
+      <button className="game-brand" onClick={onLeave} aria-label="Return to title screen"><BrandMark /><strong>KEEPSTORM</strong></button>
       <div className="keep-score keep-score--player">
         <div><b style={{ color: playerFaction.color }}>{teamDisplayName(game, "player").toUpperCase()}</b><span>{Math.ceil(game.keeps.player)} / {KEEP_MAX_HP}</span></div>
         <i><span style={{ width: `${playerRatio * 100}%`, background: playerFaction.color }} /></i>

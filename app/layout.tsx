@@ -6,6 +6,14 @@ export const metadata: Metadata = {
   description:
     "Choose an asymmetric faction, place and upgrade structures across a scrolling battlefield, synchronize automatic cohorts, and outbuild an adaptive rival in Keepstorm.",
   keywords: ["strategy game", "browser game", "base building", "auto battler", "Keepstorm"],
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.png", type: "image/png", sizes: "64x64" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
   openGraph: {
     title: "Keepstorm — Build the answer. Time the march.",
     description: "Command one of three original factions through counters, economy, upgrades, abilities, and synchronized siege waves.",

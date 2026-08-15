@@ -32,6 +32,9 @@ test("renders the Keepstorm alpha title experience", async () => {
   assert.match(html, /Twenty-four structures/);
   assert.match(html, /Fifteen ability-driven cohorts/);
   assert.match(html, /og\.png/);
+  assert.match(html, /keepstorm-crest-v1\.png/);
+  assert.match(html, /favicon\.ico/);
+  assert.match(html, /apple-touch-icon\.png/);
   assert.doesNotMatch(html, /Heartkeep|Stormbreak/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview|react-loading-skeleton/);
 });

@@ -25,7 +25,7 @@ button:focus-visible, canvas:focus-visible { outline: 3px solid var(--gold-brigh
 button:disabled { cursor: not-allowed; opacity: .48; transform: none !important; }
 
 .eyebrow { color: var(--gold); font-size: 10px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase; }
-.brand-rune { display: grid; place-items: center; width: 40px; aspect-ratio: 1; flex: 0 0 auto; background: linear-gradient(145deg, var(--gold-bright), #c48a22); color: #332814; font: 900 23px/1 var(--serif); clip-path: polygon(50% 0, 92% 20%, 82% 82%, 50% 100%, 18% 82%, 8% 20%); filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .45)); }
+.brand-mark { display: block; width: 50px; height: 50px; flex: 0 0 auto; object-fit: contain; filter: drop-shadow(0 5px 9px rgba(0, 0, 0, .56)); }
 
 .primary-button, .secondary-button, .text-button { border: 0; cursor: pointer; text-transform: uppercase; font-size: 10px; font-weight: 900; letter-spacing: .13em; transition: transform .18s ease, border-color .18s ease, background .18s ease; }
 .primary-button { min-height: 48px; display: inline-flex; align-items: center; justify-content: space-between; gap: 28px; padding: 0 20px; background: linear-gradient(135deg, var(--gold-bright), var(--gold)); border: 1px solid #ffde76; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); color: #2c2716; }
@@ -38,7 +38,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .title-art { position: absolute; inset: 0; z-index: -3; background: url("/game/title-art.jpg") 58% 50% / cover no-repeat; transform: scale(1.015); animation: title-arrive 1.4s ease-out both; }
 .title-vignette { position: absolute; inset: 0; z-index: -2; background: linear-gradient(90deg, rgba(7, 11, 8, .97) 0%, rgba(11, 15, 11, .88) 31%, rgba(10, 14, 10, .22) 65%, rgba(7, 10, 8, .22)), linear-gradient(0deg, rgba(7, 10, 8, .93), transparent 53%), radial-gradient(circle at 76% 48%, transparent 0 26%, rgba(8, 11, 8, .32) 78%); }
 .title-header { height: 82px; display: flex; align-items: center; gap: 13px; padding: 0 clamp(24px, 4.5vw, 78px); border-bottom: 1px solid rgba(255, 242, 210, .16); background: rgba(8, 12, 9, .18); }
-.title-header > strong { font: 700 17px/1 var(--serif); letter-spacing: .16em; }
+.title-header > strong { color: var(--cream); font: 700 17px/1 var(--serif); letter-spacing: .16em; text-shadow: 0 2px 10px rgba(0, 0, 0, .72); }
 .alpha-label { margin-left: auto; padding: 8px 11px; border: 1px solid rgba(255, 242, 210, .31); color: rgba(255, 242, 210, .7); font-size: 9px; font-weight: 800; letter-spacing: .15em; }
 .hero-copy { width: min(660px, calc(100vw - 48px)); margin: clamp(66px, 12vh, 128px) 0 80px clamp(24px, 7vw, 122px); animation: copy-arrive .85s .2s ease-out both; }
 .hero-copy h1 { margin: 18px 0 20px; font: 700 clamp(52px, 6.2vw, 96px)/.9 var(--serif); letter-spacing: -.055em; text-shadow: 0 10px 32px #000; }
@@ -106,8 +106,8 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 .game-shell { height: 100svh; min-height: 720px; display: grid; grid-template-rows: 62px minmax(390px, 1fr) 218px; overflow: hidden; background: #0d120e; }
 .game-header { z-index: 8; display: grid; grid-template-columns: minmax(150px, .7fr) minmax(170px, 1fr) 138px minmax(170px, 1fr) minmax(84px, .35fr); align-items: center; gap: 18px; padding: 0 18px; background: linear-gradient(180deg, #1e281e, #111711); border-bottom: 1px solid rgba(240, 189, 72, .42); box-shadow: 0 4px 20px rgba(0, 0, 0, .4); }
 .game-brand { display: flex; align-items: center; gap: 9px; width: max-content; padding: 0; background: transparent; border: 0; cursor: pointer; }
-.game-brand .brand-rune { width: 32px; font-size: 18px; }
-.game-brand strong { font: 700 13px var(--serif); letter-spacing: .13em; }
+.game-brand .brand-mark { width: 39px; height: 39px; }
+.game-brand strong { color: var(--cream); font: 700 13px var(--serif); letter-spacing: .13em; text-shadow: 0 2px 8px rgba(0, 0, 0, .7); }
 .keep-score { display: grid; gap: 4px; }
 .keep-score > div { display: flex; justify-content: space-between; font-size: 8px; letter-spacing: .1em; }
 .keep-score > div b { color: var(--gold); }
@@ -297,7 +297,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
   .title-art { background-position: 68% 50%; }
   .title-vignette { background: linear-gradient(90deg, rgba(7, 11, 8, .94), rgba(7, 11, 8, .45)), linear-gradient(0deg, rgba(7, 10, 8, .94), transparent 60%); }
   .title-header { height: 64px; padding: 0 18px; }
-  .title-header .brand-rune { width: 34px; font-size: 19px; }
+  .title-header .brand-mark { width: 40px; height: 40px; }
   .alpha-label { font-size: 7px; }
   .hero-copy { margin: 70px 24px 110px; }
   .hero-copy h1 { font-size: clamp(48px, 15vw, 70px); }
@@ -325,7 +325,7 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 
   .game-shell { height: auto; min-height: 100svh; grid-template-rows: 54px 430px auto; overflow: visible; }
   .game-header { position: sticky; top: 0; grid-template-columns: 45px 1fr 76px 1fr 70px; gap: 5px; padding: 0 7px; }
-  .game-brand .brand-rune { width: 30px; }
+  .game-brand .brand-mark { width: 34px; height: 34px; }
   .keep-score > div b { font-size: 6px; }
   .keep-score > div span { display: none; }
   .match-clock > span, .match-clock small { display: none; }

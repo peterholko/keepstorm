@@ -2,21 +2,21 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Musterhold — Place wisely. March relentlessly.",
+  title: "Musterhold — Build the answer. Time the march.",
   description:
-    "Place foundries across a double-width scrolling battlefield, route automatic cohorts, and outbuild an adaptive rival in Musterhold.",
-  keywords: ["strategy game", "browser game", "base building", "Musterhold"],
+    "Choose an asymmetric faction, place and upgrade structures across a scrolling battlefield, synchronize automatic cohorts, and outbuild an adaptive rival in Musterhold.",
+  keywords: ["strategy game", "browser game", "base building", "auto battler", "Musterhold"],
   openGraph: {
-    title: "Musterhold — Place wisely. March relentlessly.",
-    description: "Build a true 2D construction yard on a scrolling battlefield and outmatch an adaptive rival in this original automated siege strategy Alpha.",
+    title: "Musterhold — Build the answer. Time the march.",
+    description: "Command one of three original factions through counters, economy, upgrades, abilities, and synchronized siege waves.",
     type: "website",
     siteName: "Musterhold",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Daybreak and Nightveil forces clash in Musterhold" }],
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Original automated siege forces clash in Musterhold" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Musterhold — Place wisely. March relentlessly.",
-    description: "Build a true 2D construction yard and outmatch an adaptive rival.",
+    title: "Musterhold — Build the answer. Time the march.",
+    description: "Choose a faction, shape a 2D construction yard, and outmatch an adaptive rival.",
     images: ["/og.png"],
   },
 };

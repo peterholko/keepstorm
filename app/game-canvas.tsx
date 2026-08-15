@@ -5,6 +5,8 @@ import {
   BUILDING_SPECS,
   BUILD_AREAS,
   CELL_SIZE,
+  FACTIONS,
+  FACTION_IDS,
   GRID_COLUMNS,
   GRID_ROWS,
   KEEP_MAX_HP,
@@ -15,6 +17,7 @@ import {
   validatePlacement,
   type Building,
   type BuildingKind,
+  type FactionId,
   type GameState,
   type GridPoint,
   type Team,
@@ -23,14 +26,16 @@ import {
 import { drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
 
 interface LoadedArt {
-  player: HTMLCanvasElement;
-  enemy: HTMLCanvasElement;
+  keeps: Record<Team, HTMLCanvasElement>;
+  factions: Record<FactionId, HTMLCanvasElement>;
 }
 
 interface GameCanvasProps {
   state: GameState;
   selected: BuildingKind | null;
+  selectedBuildingId: number | null;
   onPlace: (kind: BuildingKind, gridX: number, gridY: number) => void;
+  onSelectBuilding: (buildingId: number | null) => void;
   onCancelSelection: () => void;
   onHoverMessage: (message: string | null) => void;
 }
@@ -39,128 +44,149 @@ interface HoverCell extends GridPoint {
   source: "pointer" | "keyboard";
 }
 
-const TEAM_COLORS: Record<Team, string> = {
-  player: "#ffd45c",
-  enemy: "#70f0c6",
-};
+function teamColor(state: GameState, team: Team): string {
+  return FACTIONS[state.factions[team]].color;
+}
 
-function drawHealthBar(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  ratio: number,
-  team: Team,
-): void {
+function drawHealthBar(context: CanvasRenderingContext2D, x: number, y: number, width: number, ratio: number, color: string): void {
   context.fillStyle = "rgba(10, 13, 10, .82)";
   context.fillRect(x - width / 2 - 2, y - 2, width + 4, 8);
-  context.fillStyle = ratio > 0.42 ? TEAM_COLORS[team] : "#f06b55";
+  context.fillStyle = ratio > 0.42 ? color : "#f06b55";
   context.fillRect(x - width / 2, y, width * Math.max(0, ratio), 4);
 }
 
-function drawFootprint(
-  context: CanvasRenderingContext2D,
-  building: Building,
-  color: string,
-): void {
+function drawFootprint(context: CanvasRenderingContext2D, building: Building, color: string, selected: boolean): void {
   const spec = BUILDING_SPECS[building.kind];
   const x = building.gridX * CELL_SIZE;
   const y = building.gridY * CELL_SIZE;
-  context.fillStyle = `${color}1f`;
-  context.strokeStyle = `${color}8a`;
-  context.lineWidth = 2;
+  context.fillStyle = `${color}${selected ? "38" : "1f"}`;
+  context.strokeStyle = selected ? "#fff2c8" : `${color}8a`;
+  context.lineWidth = selected ? 4 : 2;
   context.beginPath();
   context.roundRect(x + 3, y + 3, spec.width * CELL_SIZE - 6, spec.height * CELL_SIZE - 6, 9);
   context.fill();
   context.stroke();
 }
 
-function drawBuilding(
-  context: CanvasRenderingContext2D,
-  building: Building,
-  atlas: HTMLCanvasElement,
-): void {
+function buildingDimensions(building: Building): { width: number; height: number } {
+  const category = BUILDING_SPECS[building.kind].category;
+  if (category === "economy") return { width: 86, height: 104 };
+  if (category === "tower") return { width: 82, height: 132 };
+  if (category === "special") return { width: 92, height: 120 };
+  return { width: 118, height: 140 };
+}
+
+function drawBuilding(context: CanvasRenderingContext2D, state: GameState, building: Building, atlas: HTMLCanvasElement, selected: boolean): void {
   const spec = BUILDING_SPECS[building.kind];
   const centerX = (building.gridX + spec.width / 2) * CELL_SIZE;
   const groundY = (building.gridY + spec.height) * CELL_SIZE + 8;
-  const width = building.kind === "tallyhouse" ? 94 : 126;
-  const height = building.kind === "tallyhouse" ? 118 : 154;
-  drawFootprint(context, building, TEAM_COLORS[building.team]);
+  const { width, height } = buildingDimensions(building);
+  const color = teamColor(state, building.team);
+  drawFootprint(context, building, color, selected);
   context.save();
-  context.shadowColor = "rgba(8, 10, 8, .55)";
-  context.shadowBlur = 10;
+  context.shadowColor = selected ? color : "rgba(8, 10, 8, .55)";
+  context.shadowBlur = selected ? 22 : 10;
   context.shadowOffsetY = 7;
-  drawAtlasCell(context, atlas, spec.atlasIndex, centerX, groundY - height / 2, width, height);
+  drawAtlasCell(context, atlas, spec.atlasIndex, centerX, groundY - height / 2, width, height, false, 4, 4);
   context.restore();
-  if (building.hp < building.maxHp) {
-    drawHealthBar(context, centerX, groundY - height - 3, 70, building.hp / building.maxHp, building.team);
+
+  if (building.hp < building.maxHp || selected) drawHealthBar(context, centerX, groundY - height - 3, 70, building.hp / building.maxHp, color);
+  context.save();
+  context.textAlign = "center";
+  context.fillStyle = building.level === 3 ? "#ffe17b" : "rgba(12, 16, 12, .86)";
+  context.strokeStyle = building.level === 3 ? "#9f7625" : color;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(centerX + width * .34, groundY - height + 8, 12, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.fillStyle = building.level === 3 ? "#29210f" : "#fff3d5";
+  context.font = "900 10px Trebuchet MS, sans-serif";
+  context.fillText(building.level === 3 ? "★" : `L${building.level}`, centerX + width * .34, groundY - height + 12);
+  context.restore();
+
+  if (spec.spawnEvery) {
+    const ratio = building.productionPaused ? 0 : Math.max(0, Math.min(1, 1 - building.spawnClock / spec.spawnEvery));
+    context.fillStyle = "rgba(8, 11, 8, .8)";
+    context.fillRect(centerX - 31, groundY + 5, 62, 5);
+    context.fillStyle = building.productionPaused ? "#74756b" : color;
+    context.fillRect(centerX - 30, groundY + 6, 60 * ratio, 3);
   }
 }
 
 function unitDimensions(unit: Unit): { width: number; height: number } {
-  if (unit.kind === "ramguard") return { width: 68, height: 88 };
-  if (unit.kind === "quillrunner") return { width: 64, height: 78 };
-  return { width: 58, height: 72 };
+  const role = UNIT_SPECS[unit.kind].role;
+  if (role === "vanguard") return { width: 62, height: 78 };
+  if (role === "siege") return { width: 72, height: 78 };
+  if (role === "air") return { width: 68, height: 70 };
+  if (role === "support") return { width: 55, height: 68 };
+  return { width: 57, height: 70 };
 }
 
-function drawUnit(
-  context: CanvasRenderingContext2D,
-  unit: Unit,
-  atlas: HTMLCanvasElement,
-  elapsed: number,
-): void {
+function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Unit, atlas: HTMLCanvasElement): void {
   const spec = UNIT_SPECS[unit.kind];
   const { width, height } = unitDimensions(unit);
-  const float = unit.kind === "wispwright" ? Math.sin(elapsed * 5 + unit.id) * 4 - 7 : 0;
+  const float = spec.flying ? Math.sin(state.elapsed * 5 + unit.id) * 4 - 15 : spec.role === "support" ? Math.sin(state.elapsed * 4 + unit.id) * 2 - 3 : 0;
+  const color = teamColor(state, unit.team);
 
   context.save();
   context.fillStyle = "rgba(5, 9, 7, .34)";
   context.beginPath();
-  context.ellipse(unit.x, unit.y + 3, width * 0.29, 8, 0, 0, Math.PI * 2);
+  context.ellipse(unit.x, unit.y + 3, width * .28, spec.flying ? 6 : 8, 0, 0, Math.PI * 2);
   context.fill();
-  if (unit.attackFlash > 0) {
-    context.shadowColor = TEAM_COLORS[unit.team];
-    context.shadowBlur = 24;
+  if (unit.attackFlash > 0 || unit.level === 3) {
+    context.shadowColor = unit.level === 3 ? "#ffe17b" : color;
+    context.shadowBlur = unit.level === 3 ? 18 : 24;
   }
-  drawAtlasCell(context, atlas, spec.atlasIndex, unit.x, unit.y - height / 2 + float, width, height);
+  drawAtlasCell(context, atlas, spec.atlasIndex, unit.x, unit.y - height / 2 + float, width, height, unit.team === "enemy", 4, 4);
   context.restore();
-  drawHealthBar(context, unit.x, unit.y - height + float - 3, 34, unit.hp / unit.maxHp, unit.team);
+
+  if (unit.shield > 0) {
+    context.strokeStyle = "rgba(145, 230, 255, .75)";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.ellipse(unit.x, unit.y - height / 2 + float, width * .46, height * .52, 0, 0, Math.PI * 2);
+    context.stroke();
+  }
+  if (unit.poisonTimer > 0 || unit.slowTimer > 0 || unit.stunTimer > 0) {
+    context.fillStyle = unit.stunTimer > 0 ? "#ffe17b" : unit.poisonTimer > 0 ? "#9bc95a" : "#76cce5";
+    context.beginPath();
+    context.arc(unit.x, unit.y - height + float - 8, 4, 0, Math.PI * 2);
+    context.fill();
+  }
+  drawHealthBar(context, unit.x, unit.y - height + float - 3, 36, unit.hp / unit.maxHp, color);
 }
 
-function drawKeep(
-  context: CanvasRenderingContext2D,
-  state: GameState,
-  team: Team,
-  atlas: HTMLCanvasElement,
-): void {
+function drawKeep(context: CanvasRenderingContext2D, state: GameState, team: Team, atlas: HTMLCanvasElement): void {
   const base = KEEP_POSITIONS[team];
-  const x = base.x;
   const width = 220;
   const height = 270;
+  const color = teamColor(state, team);
   context.save();
   context.shadowColor = "rgba(6, 9, 7, .62)";
   context.shadowBlur = 20;
   context.shadowOffsetY = 10;
-  drawAtlasCell(context, atlas, 0, x, base.y - 28, width, height);
+  drawAtlasCell(context, atlas, 0, base.x, base.y - 28, width, height, team === "enemy");
   context.restore();
-  drawHealthBar(context, x, base.y - 180, 122, state.keeps[team] / KEEP_MAX_HP, team);
+  drawHealthBar(context, base.x, base.y - 180, 122, state.keeps[team] / KEEP_MAX_HP, color);
 
+  const armored = state.keepArmorUntil[team] > state.elapsed;
   context.textAlign = "center";
-  context.fillStyle = "rgba(12, 16, 12, .8)";
-  context.fillRect(x - 62, base.y + 112, 124, 31);
-  context.fillStyle = TEAM_COLORS[team];
-  context.font = "800 13px Trebuchet MS, sans-serif";
-  context.fillText(team === "player" ? "DAYBREAK" : "NIGHTVEIL", x, base.y + 126);
+  context.fillStyle = "rgba(12, 16, 12, .84)";
+  context.fillRect(base.x - 74, base.y + 112, 148, 34);
+  context.fillStyle = color;
+  context.font = "800 11px Trebuchet MS, sans-serif";
+  context.fillText(FACTIONS[state.factions[team]].name.toUpperCase(), base.x, base.y + 126);
   context.fillStyle = "#fff3d5";
-  context.font = "700 12px Trebuchet MS, sans-serif";
-  context.fillText(`${Math.ceil(state.keeps[team])} HP`, x, base.y + 140);
+  context.font = "700 11px Trebuchet MS, sans-serif";
+  context.fillText(`${Math.ceil(state.keeps[team])} HP${armored ? " · ARMORED" : ""}`, base.x, base.y + 140);
 }
 
 function drawEffects(context: CanvasRenderingContext2D, state: GameState): void {
   for (const effect of state.effects) {
-    const color = effect.team ? TEAM_COLORS[effect.team] : "#fff3d5";
+    const color = effect.team ? teamColor(state, effect.team) : "#fff3d5";
     context.save();
-    context.globalAlpha = Math.min(1, Math.max(0, effect.life * 1.8));
+    context.globalAlpha = Math.min(1, Math.max(0, effect.life * 1.7));
     if (effect.type === "hit" && effect.x2 !== undefined && effect.y2 !== undefined) {
       context.strokeStyle = color;
       context.lineWidth = 5;
@@ -170,19 +196,21 @@ function drawEffects(context: CanvasRenderingContext2D, state: GameState): void 
       context.moveTo(effect.x, effect.y - 28);
       context.lineTo(effect.x2, effect.y2 - 24);
       context.stroke();
-    } else if (effect.type === "spawn") {
-      context.strokeStyle = color;
-      context.lineWidth = 5;
+    } else if (effect.type === "spawn" || effect.type === "shield" || effect.type === "heal" || effect.type === "pulse" || effect.type === "upgrade" || effect.type === "item") {
+      context.strokeStyle = effect.type === "heal" ? "#a6eb8b" : effect.type === "shield" ? "#8fdfff" : color;
+      context.lineWidth = effect.type === "item" ? 8 : 5;
+      context.shadowColor = context.strokeStyle;
+      context.shadowBlur = 18;
       context.beginPath();
-      context.arc(effect.x, effect.y, 18 + (0.75 - effect.life) * 55, 0, Math.PI * 2);
+      context.arc(effect.x, effect.y, 18 + (1.2 - effect.life) * (effect.type === "pulse" ? 150 : 68), 0, Math.PI * 2);
       context.stroke();
     } else if (effect.type === "destroy") {
       context.fillStyle = "#33291f";
       for (let mote = 0; mote < 7; mote += 1) {
-        const angle = mote * 0.9 + effect.id;
+        const angle = mote * .9 + effect.id;
         const radius = (1.2 - effect.life) * 42;
         context.beginPath();
-        context.arc(effect.x + Math.cos(angle) * radius, effect.y + Math.sin(angle) * radius, 10 + mote % 3, 0, Math.PI * 2);
+        context.arc(effect.x + Math.cos(angle) * radius, effect.y + Math.sin(angle) * radius, 8 + mote % 3, 0, Math.PI * 2);
         context.fill();
       }
     } else if (effect.type === "reprieve") {
@@ -197,14 +225,20 @@ function drawEffects(context: CanvasRenderingContext2D, state: GameState): void 
       context.fillStyle = color;
       context.textAlign = "center";
       context.font = "900 22px Trebuchet MS, sans-serif";
-      context.fillText("+ YIELD", effect.x, effect.y - 155 - (0.8 - effect.life) * 35);
+      context.fillText(`${effect.label ?? "+"} MARKS`, effect.x, effect.y - 155 - (.8 - effect.life) * 35);
+    }
+    if (effect.label && effect.type !== "yield") {
+      context.fillStyle = "#fff3d5";
+      context.textAlign = "center";
+      context.font = "900 13px Trebuchet MS, sans-serif";
+      context.fillText(effect.label, effect.x, effect.y - 72 - (1.2 - effect.life) * 25);
     }
     context.restore();
   }
 }
 
-function drawGrid(context: CanvasRenderingContext2D, team: Team, bright: boolean): void {
-  const color = TEAM_COLORS[team];
+function drawGrid(context: CanvasRenderingContext2D, state: GameState, team: Team, bright: boolean): void {
+  const color = teamColor(state, team);
   context.save();
   for (const zone of BUILD_AREAS[team]) {
     const x = zone.minX * CELL_SIZE;
@@ -251,7 +285,7 @@ function drawRoute(context: CanvasRenderingContext2D, path: GridPoint[] | undefi
   context.restore();
 }
 
-export default function GameCanvas({ state, selected, onPlace, onCancelSelection, onHoverMessage }: GameCanvasProps) {
+export default function GameCanvas({ state, selected, selectedBuildingId, onPlace, onSelectBuilding, onCancelSelection, onHoverMessage }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [art, setArt] = useState<LoadedArt | null>(null);
@@ -265,8 +299,11 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     Promise.all([
       loadProcessedAtlas("/game/daybreak-atlas.png"),
       loadProcessedAtlas("/game/nightveil-atlas.png"),
-    ]).then(([player, enemy]) => {
-      if (active) setArt({ player, enemy });
+      ...FACTION_IDS.map((faction) => loadProcessedAtlas(FACTIONS[faction].atlas)),
+    ]).then(([playerKeep, enemyKeep, ...factionArt]) => {
+      if (!active) return;
+      const factions = Object.fromEntries(FACTION_IDS.map((faction, index) => [faction, factionArt[index]])) as Record<FactionId, HTMLCanvasElement>;
+      setArt({ keeps: { player: playerKeep, enemy: enemyKeep }, factions });
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
@@ -278,7 +315,7 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
       const bounds = canvas.getBoundingClientRect();
       const cssScale = Math.max(bounds.width / WORLD_WIDTH, bounds.height / WORLD_HEIGHT);
       const next = Math.max(1, Math.min(2, cssScale * Math.min(window.devicePixelRatio || 1, 2)));
-      setRenderScale((current) => Math.abs(current - next) > 0.05 ? next : current);
+      setRenderScale((current) => Math.abs(current - next) > .05 ? next : current);
     };
     updateRenderScale();
     const observer = new ResizeObserver(updateRenderScale);
@@ -320,8 +357,8 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     context.fillStyle = "rgba(10, 16, 9, .055)";
     context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-    drawGrid(context, "player", Boolean(selected));
-    drawGrid(context, "enemy", false);
+    drawGrid(context, state, "player", Boolean(selected));
+    drawGrid(context, state, "enemy", false);
 
     if (selected && hover && hoverValidation) {
       const spec = BUILDING_SPECS[selected];
@@ -336,36 +373,35 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
       if (hoverValidation.valid) {
         drawRoute(context, hoverValidation.path);
         context.save();
-        context.globalAlpha = 0.72;
-        const width = selected === "tallyhouse" ? 94 : 126;
-        const height = selected === "tallyhouse" ? 118 : 154;
+        context.globalAlpha = .72;
+        const dimensions = buildingDimensions({ kind: selected } as Building);
         const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
         const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
-        drawAtlasCell(context, art.player, spec.atlasIndex, centerX, groundY - height / 2, width, height);
+        drawAtlasCell(context, art.factions[state.factions.player], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
         context.restore();
       }
     }
 
-    drawKeep(context, state, "player", art.player);
-    drawKeep(context, state, "enemy", art.enemy);
+    drawKeep(context, state, "player", art.keeps.player);
+    drawKeep(context, state, "enemy", art.keeps.enemy);
 
     const fieldObjects: Array<{ y: number; draw: () => void }> = [];
     for (const building of state.buildings) {
       const spec = BUILDING_SPECS[building.kind];
       fieldObjects.push({
         y: (building.gridY + spec.height) * CELL_SIZE,
-        draw: () => drawBuilding(context, building, building.team === "player" ? art.player : art.enemy),
+        draw: () => drawBuilding(context, state, building, art.factions[state.factions[building.team]], selectedBuildingId === building.id),
       });
     }
     for (const unit of state.units) {
       fieldObjects.push({
         y: unit.y,
-        draw: () => drawUnit(context, unit, unit.team === "player" ? art.player : art.enemy, state.elapsed),
+        draw: () => drawUnit(context, state, unit, art.factions[state.factions[unit.team]]),
       });
     }
     fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
     drawEffects(context, state);
-  }, [art, hover, hoverValidation, renderScale, selected, state]);
+  }, [art, hover, hoverValidation, renderScale, selected, selectedBuildingId, state]);
 
   const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): HoverCell => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -389,6 +425,15 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     if (validation.valid) onPlace(selected, hover.x, hover.y);
   };
 
+  const selectAtCell = (cell: GridPoint) => {
+    const hit = [...state.buildings].reverse().find((building) => {
+      if (building.team !== "player") return false;
+      const spec = BUILDING_SPECS[building.kind];
+      return cell.x >= building.gridX && cell.x < building.gridX + spec.width && cell.y >= building.gridY && cell.y < building.gridY + spec.height;
+    });
+    onSelectBuilding(hit?.id ?? null);
+  };
+
   const updateScrollRatio = () => {
     const viewport = scrollRef.current;
     if (!viewport) return;
@@ -399,7 +444,7 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
   const panCamera = (direction: -1 | 1) => {
     const viewport = scrollRef.current;
     if (!viewport) return;
-    viewport.scrollBy({ left: viewport.clientWidth * 0.72 * direction, behavior: "smooth" });
+    viewport.scrollBy({ left: viewport.clientWidth * .72 * direction, behavior: "smooth" });
   };
 
   const moveCameraTo = (ratio: number, behavior: ScrollBehavior = "smooth") => {
@@ -408,42 +453,29 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
     viewport.scrollTo({ left: (viewport.scrollWidth - viewport.clientWidth) * ratio, behavior });
   };
 
-  const cameraLabel = scrollRatio < 0.18 ? "DAYBREAK YARD" : scrollRatio > 0.82 ? "NIGHTVEIL YARD" : "CONTESTED ROAD";
+  const cameraLabel = scrollRatio < .18 ? `${FACTIONS[state.factions.player].name.toUpperCase()} YARD` : scrollRatio > .82 ? `${FACTIONS[state.factions.enemy].name.toUpperCase()} YARD` : "CONTESTED ROAD";
 
   return (
     <div className="battlefield-frame">
       {(!art || !mapReady) && <div className="battlefield-loading"><span />Preparing the Twin Yards…</div>}
-      <div
-        ref={scrollRef}
-        className="battlefield-scroll"
-        onScroll={updateScrollRatio}
-      >
+      <div ref={scrollRef} className="battlefield-scroll" onScroll={updateScrollRatio}>
         <div className="battlefield-world">
-          {/* A direct image preserves the lossless board at its authored resolution. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="battlefield-map"
-            src="/game/battlefield-panorama.png"
-            alt=""
-            draggable={false}
-            onLoad={() => setMapReady(true)}
-          />
+          <img className="battlefield-map" src="/game/battlefield-panorama.png" alt="" draggable={false} onLoad={() => setMapReady(true)} />
           <canvas
             ref={canvasRef}
             width={Math.round(WORLD_WIDTH * renderScale)}
             height={Math.round(WORLD_HEIGHT * renderScale)}
             className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
-            aria-label="The double-width Twin Yards battlefield. Scroll horizontally with the camera controls, mouse wheel, trackpad, touch, or A and D keys. Choose a Foundry below, then place it in either illuminated Daybreak construction field at the far left."
+            aria-label="A double-width battlefield. Scroll horizontally, choose a structure below, place it in your illuminated construction yard, or click one of your structures to inspect and upgrade it."
             tabIndex={0}
             onPointerMove={(event) => updateHover(cellFromPointer(event))}
             onPointerLeave={() => updateHover(null)}
-            onPointerDown={(event) => {
-              if (event.button === 2) onCancelSelection();
-            }}
+            onPointerDown={(event) => { if (event.button === 2) onCancelSelection(); }}
             onClick={(event) => {
               const cell = cellFromPointer(event);
               updateHover(cell);
-              if (!selected) return;
+              if (!selected) { selectAtCell(cell); return; }
               const validation = validatePlacement(state, "player", selected, cell.x, cell.y);
               onHoverMessage(validation.reason);
               if (validation.valid) onPlace(selected, cell.x, cell.y);
@@ -482,14 +514,7 @@ export default function GameCanvas({ state, selected, onPlace, onCancelSelection
         <button onClick={() => panCamera(-1)} aria-label="Scroll battlefield left">‹</button>
         <label>
           <span>{cameraLabel}</span>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={Math.round(scrollRatio * 100)}
-            onChange={(event) => moveCameraTo(Number(event.target.value) / 100, "auto")}
-            aria-label="Battlefield horizontal position"
-          />
+          <input type="range" min="0" max="100" value={Math.round(scrollRatio * 100)} onChange={(event) => moveCameraTo(Number(event.target.value) / 100, "auto")} aria-label="Battlefield horizontal position" />
           <small>A / D · WHEEL · SWIPE</small>
         </label>
         <button onClick={() => panCamera(1)} aria-label="Scroll battlefield right">›</button>

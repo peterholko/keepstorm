@@ -99,11 +99,13 @@ export function drawAtlasCell(
   width: number,
   height: number,
   flip = false,
+  rows = ATLAS_ROWS,
+  columns = ATLAS_COLUMNS,
 ): void {
-  const cellWidth = atlas.width / ATLAS_COLUMNS;
-  const cellHeight = atlas.height / ATLAS_ROWS;
-  const sourceX = (index % ATLAS_COLUMNS) * cellWidth;
-  const sourceY = Math.floor(index / ATLAS_COLUMNS) * cellHeight;
+  const cellWidth = atlas.width / columns;
+  const cellHeight = atlas.height / rows;
+  const sourceX = (index % columns) * cellWidth;
+  const sourceY = Math.floor(index / columns) * cellHeight;
 
   context.save();
   context.translate(x, y);

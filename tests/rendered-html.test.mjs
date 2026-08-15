@@ -19,12 +19,14 @@ test("renders the Musterhold alpha title experience", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Musterhold — Place wisely\. March relentlessly\.<\/title>/i);
+  assert.match(html, /<title>Musterhold — Build the answer\. Time the march\.<\/title>/i);
   assert.match(html, /MUSTERHOLD/);
-  assert.match(html, /Place wisely\./);
-  assert.match(html, /Begin solo skirmish/);
-  assert.match(html, /PLAYTEST ALPHA/);
-  assert.match(html, /Double-width scrolling battlefield/);
+  assert.match(html, /Build the answer\./);
+  assert.match(html, /Daybreak Company/);
+  assert.match(html, /DEPTH ALPHA/);
+  assert.match(html, /Three asymmetric factions/);
+  assert.match(html, /Twenty-four structures/);
+  assert.match(html, /Fifteen ability-driven cohorts/);
   assert.match(html, /og\.png/);
   assert.doesNotMatch(html, /KEEPSTORM|Heartkeep|Stormbreak/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview|react-loading-skeleton/);

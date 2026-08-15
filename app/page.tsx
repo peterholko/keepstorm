@@ -330,7 +330,7 @@ export default function Home() {
 
   useEffect(() => {
     const invitation = normalizeRoomCode(new URL(window.location.href).searchParams.get("room") ?? "");
-    if (!invitation) return;
+    if (!invitation || !isStartModeAvailable("join")) return;
     const timeout = window.setTimeout(() => {
       setJoinCode(invitation);
       setStartMode("join");

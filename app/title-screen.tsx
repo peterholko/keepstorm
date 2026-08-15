@@ -16,7 +16,7 @@ const MODE_OPTIONS: { id: StartMode; name: string; detail: string }[] = [
 ];
 
 export function isStartModeAvailable(mode: StartMode): boolean {
-  return mode !== "1v1" && mode !== "2v2";
+  return mode === "solo";
 }
 
 const FACTION_COPY: Record<FactionId, { summary: string; passive: string }> = {
@@ -169,7 +169,7 @@ export default function TitleScreen({
                 </div>
                 <div className="start-submit">
                   {onlineNotice && <p className="start-notice" role="alert">{onlineNotice}</p>}
-                  <button className="primary-button" disabled={!faction || !mode || onlineBusy} onClick={onStart}>
+                  <button className="primary-button" disabled={!faction || !mode || !isStartModeAvailable(mode) || onlineBusy} onClick={onStart}>
                     {mode ? startLabel(mode, onlineBusy) : "Continue"}
                   </button>
                 </div>

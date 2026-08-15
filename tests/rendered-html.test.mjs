@@ -36,6 +36,7 @@ test("renders the first step of the Keepstorm start flow", async () => {
   assert.match(html, /Testing soon/);
   assert.match(html, /Join a game/);
   assert.match(html, /Enter a code from a friend/);
+  assert.match(html, /<button(?=[^>]*data-mode="join")(?=[^>]*disabled="")[^>]*>/);
   assert.match(html, /How to play/);
   assert.match(html, /og\.png/);
   assert.match(html, /keepstorm-crest-v1\.png/);

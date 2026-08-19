@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "Keepstorm",
+  "short_name": "Keepstorm",
+  "description": "Build an army-producing stronghold and break the rival Keep.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d120e",
+  "theme_color": "#0d120e",
+  "categories": ["games", "strategy"],
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/keepstorm-crest-v1.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

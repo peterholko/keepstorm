@@ -1,9 +1,10 @@
 "use client";
 
 import BrandMark from "./brand-mark";
+import IOSInstallPrompt from "./ios-install-prompt";
 import StartSteps from "./start-steps";
 import { ROOM_CODE_LENGTH, normalizeRoomCode } from "@/lib/multiplayer/protocol";
-import { FACTIONS, FACTION_IDS, type FactionId } from "@/lib/keepstorm/engine";
+import { FACTIONS, FACTION_IDS, GAME_VERSION, type FactionId } from "@/lib/keepstorm/engine";
 
 export type StartMode = "solo" | "1v1" | "2v2" | "join";
 export type StartStep = "mode" | "faction";
@@ -16,7 +17,7 @@ const MODE_OPTIONS: { id: StartMode; name: string; detail: string }[] = [
 ];
 
 export function isStartModeAvailable(mode: StartMode): boolean {
-  return mode === "solo";
+  return mode === "solo" || mode === "1v1" || mode === "2v2" || mode === "join";
 }
 
 const FACTION_COPY: Record<FactionId, { summary: string; passive: string }> = {
@@ -84,7 +85,7 @@ export default function TitleScreen({
       <header className="title-header">
         <BrandMark />
         <strong>KEEPSTORM</strong>
-        <span className="alpha-label">Alpha 0.4</span>
+        <span className="alpha-label">{`Alpha ${GAME_VERSION}`}</span>
       </header>
 
       <section className="start-shell" aria-labelledby="start-heading">
@@ -179,6 +180,7 @@ export default function TitleScreen({
           )}
         </div>
       </section>
+      <IOSInstallPrompt />
     </main>
   );
 }

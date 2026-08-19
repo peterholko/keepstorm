@@ -2,7 +2,7 @@
 
 ## Current product boundary
 
-The Alpha is a deterministic, one-player browser skirmish. The browser owns a pure TypeScript simulation, a React command interface, and a Canvas battlefield. This makes the full placement-to-victory loop cheap to tune before network authority is introduced.
+The Alpha uses one deterministic TypeScript simulation for Solo and authoritative 1v1/2v2 rooms. React owns the command interface, Canvas renders the battlefield, and a Cloudflare Durable Object owns each online match.
 
 ```text
 React interface
@@ -28,11 +28,11 @@ The engine clamps each update to 200 milliseconds. The interface requests update
 
 ## Placement and navigation
 
-The battlefield is 3200 × 896 world units divided into 100 × 28 cells. Daybreak owns columns 5–16 and Nightveil owns columns 83–94. Every building declares a width and height in cells. The Canvas keeps this full native world width while a containing camera viewport scrolls horizontally; pointer coordinates are translated against the complete Canvas, so placement remains accurate at every camera position.
+The battlefield is 3200 × 896 world units divided into 100 × 28 cells. Each side has two 13 × 9 construction yards aligned to the dirt clearings: western columns 8–20 and eastern columns 79–91. Every building declares a width and height in cells. The Canvas keeps this full native world width while a containing camera viewport scrolls horizontally; pointer coordinates are translated against the complete Canvas, so placement remains accurate at every camera position.
 
 Before accepting a placement, the engine checks:
 
-1. Match phase, building cap, and available Marks.
+1. Match phase, the 30-structure commander cap, treasury cap, and available resources.
 2. Entire footprint remains inside the team construction yard.
 3. No occupied cell overlaps the candidate.
 4. No production exit becomes occupied.
@@ -42,17 +42,22 @@ Each spawned cohort receives the current route from its individual Foundry to th
 
 ## Combat and economy
 
-- Production timers belong to individual Foundries, so positions and build times create staggered cohorts.
+- Production timers belong to individual Foundries. Their cadence scales with total Marks invested, so stronger ranks deploy less often and positions still create staggered cohorts.
 - Units find nearby enemy units first. Once inside the opposing yard they can attack targetable Foundries, then the Keep.
+- Each commander owns one manually repositioned, untargetable Keep Warden with a ranged attack. Server validation confines it to that commander&apos;s base yard; it can defend but never enters enemy cohort targeting or pathfinding.
 - Hammer, Arrow, and Arc receive a 1.7× bonus into their countered armor and a 0.74× penalty in the reverse matchup.
 - Each Keep fires a periodic defensive shot at the nearest raider.
-- Yield is calculated from living buildings and paid every seven seconds.
-- The rival chooses a counter to the player’s dominant production type and periodically adds a Tallyhouse when its production base is developed.
+- Each commander begins with 400 Marks, 125 Timber, and one Sigil—enough for every faction's three least-expensive troop structures. Five base Marks plus cost-derived income from surviving buildings are paid every 10 seconds.
+- Passive income uses eight progressive 25-Mark tax brackets, rising by 10% per bracket to an 80% ceiling.
+- Normal unit works contribute 2% of invested Marks and return 100% of their Mark cost as Timber. Siege contributes 1.8% and returns 75%; support contributes 1.2%, enemy-targeting support 0.9%, and towers 0.8%. Legendary unit ranks return 25%, with any one return capped at 300 Timber.
+- Faction treasuries cost 350 Marks and 500 Timber, add their support-building income, and multiply total income by 25%. Each later treasury contributes 85% of the previous multiplier bonus, up to five per commander.
+- The solo rival scores the player’s weighted armor mix, air and anti-air coverage, production count, and live field pressure. It maintains a production floor before reserving Marks, balances frontline, support, air, anti-air, and Siege roles, and alternates gate-side placement between both yards.
+- Strategic spending is conditional rather than a fixed build order: reactive towers and emergency items answer pressure; support works, upgrades, legendary ranks, Rally Horn, and late treasuries are purchased only after production has caught up. Rally Sync is enabled only for near-matching production cadences and disabled under pressure.
 - At 3:30, road position begins applying light pressure to the weaker Keep so stalled matches resolve.
 
-## When multiplayer is added
+## Multiplayer authority
 
-Real-time multiplayer should use WebSockets, but the solo Alpha does not need them. HTTPS remains appropriate for accounts, matchmaking, configuration, and assets. During a match, one authenticated WebSocket should carry player commands, acknowledgements, state deltas, reconnect snapshots, and match-end events.
+Real-time multiplayer uses one authenticated WebSocket per player for sequenced commands, acknowledgements, authoritative snapshots, reconnects, and match-end events. HTTPS handles room creation, joining, configuration, and assets.
 
 The authoritative simulation should move unchanged into one stateful match room:
 
@@ -70,7 +75,7 @@ one authoritative match room
   └─ signed result
 ```
 
-On Cloudflare, a Durable Object is a natural owner for one room. A conventional stateful service can use the same boundary. Clients should send intentions such as `place_building` and `cast_reprieve`, never health, damage, or currency totals. Start with versioned JSON messages; only adopt a binary snapshot format if measurements justify it.
+On Cloudflare, one Durable Object owns each room. Clients send intentions such as `place_building`, `move_keep_warden`, and `cast_reprieve`, never health, damage, or currency totals. The server validates commander ownership, yard boundaries, costs, and cooldowns before mutating the authoritative snapshot.
 
 ## Next engineering gates
 

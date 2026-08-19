@@ -7,11 +7,14 @@ import GameCanvas from "./game-canvas";
 import LobbyModal from "./lobby-modal";
 import RulesModal from "./rules-modal";
 import TitleScreen, { isStartModeAvailable, type StartMode, type StartStep } from "./title-screen";
+import { useDeviceProfile } from "./use-device-profile";
 import { useMultiplayer } from "./use-multiplayer";
 import { normalizeRoomCode, seatsForMode, type RoomSnapshot } from "@/lib/multiplayer/protocol";
 import {
   BUILDING_CAP,
   BUILDING_SPECS,
+  DAMAGE_MATRIX,
+  ECONOMY_BUILDING_CAP,
   FACTIONS,
   KEEP_MAX_HP,
   MATCH_LIMIT,
@@ -20,19 +23,23 @@ import {
   SHOP_ITEM_KINDS,
   UNIT_SPECS,
   buildingCount,
+  buildingIncomeFor,
   buyShopItem,
   canAfford,
   castReprieve,
   commanderBuildingCount,
   commanderForBuilding,
+  commanderForUnit,
   commanderLabel,
   commandersForTeam,
   costForUpgrade,
   createInitialState,
   factionBuildings,
   incomeFor,
+  incomeBreakdownForCommander,
   incomeForCommander,
   matchReport,
+  moveKeepWarden,
   placeBuilding,
   reprieveReady,
   startNextRound,
@@ -51,6 +58,7 @@ import {
   type ResourceCost,
   type ShopItemKind,
   type Team,
+  type Unit,
 } from "@/lib/keepstorm/engine";
 
 type Screen = "title" | "game";
@@ -79,19 +87,30 @@ function costText(cost: ResourceCost): string {
   ].filter(Boolean).join(" · ");
 }
 
+function incomeText(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function StructureCard({ kind, game, localCommander, selected, hotkey, onSelect }: { kind: BuildingKind; game: GameState; localCommander: CommanderId; selected: boolean; hotkey: number; onSelect: () => void }) {
   const spec = BUILDING_SPECS[kind];
   const unit = spec.unitKind ? UNIT_SPECS[spec.unitKind] : null;
-  const unavailable = game.status !== "playing" || !canAfford(game.resources[localCommander], spec.cost) || commanderBuildingCount(game, localCommander) >= BUILDING_CAP;
+  const unavailable = game.status !== "playing"
+    || !canAfford(game.resources[localCommander], spec.cost)
+    || commanderBuildingCount(game, localCommander) >= BUILDING_CAP
+    || (spec.category === "economy" && commanderBuildingCount(game, localCommander, kind) >= ECONOMY_BUILDING_CAP);
   const role = unit ? `${unit.damageType} · ${unit.armorType}${unit.flying ? " · AIR" : ""}` : spec.category === "special" ? "FACTION POWER" : spec.category.toUpperCase();
   const effect = unit ? `${unit.role} · ${unit.ability ?? "disciplined"}` : spec.effect;
+  const productionDescription = unit
+    ? `Produces ${unit.name}, a ${unit.role} unit with ${unit.damageType} damage and ${unit.armorType} armor.`
+    : spec.description;
 
   return (
-    <button className={`foundry-card${selected ? " is-selected" : ""}`} onClick={onSelect} disabled={unavailable} aria-pressed={selected} aria-label={`${spec.name}, ${costText(spec.cost)}. ${spec.description}`}>
+    <button className={`foundry-card${selected ? " is-selected" : ""}`} onClick={onSelect} disabled={unavailable} aria-pressed={selected} aria-label={`${spec.name}, ${costText(spec.cost)}. ${productionDescription}`}>
       <i className="hotkey">{hotkey}</i>
       <AtlasSprite src={FACTIONS[game.factions[localCommander]].atlas} index={spec.atlasIndex} rows={4} columns={4} className="foundry-art" />
       <span className="foundry-copy">
         <b>{spec.name}</b>
+        {unit && <span className="foundry-output" aria-hidden="true"><strong>SPAWNS {unit.name}</strong><i>{unit.role} · {unit.damageType}</i></span>}
         <small>{role}</small>
         <em>{effect}</em>
       </span>
@@ -130,14 +149,60 @@ function BuildingInspector({ building, game, localCommander, onUpgrade, onToggle
         <p>{spec.description}</p>
         <div className="inspector-traits">
           <span><small>HEALTH</small><b>{Math.ceil(building.hp)} / {building.maxHp}</b></span>
-          <span><small>INCOME</small><b>+{Math.round(spec.yieldBonus * (1 + (building.level - 1) * .35))}</b></span>
+          <span><small>RAW INCOME</small><b>+{incomeText(buildingIncomeFor(building))}</b></span>
+          {spec.category === "economy" && <span><small>TREASURY</small><b>+25%</b></span>}
           {unit && <span><small>COHORT</small><b>{unit.damageType} / {unit.armorType}</b></span>}
           {unit && <span><small>ABILITY</small><b>{unit.ability ?? "None"}</b></span>}
         </div>
       </div>
       <div className="inspector-actions">
-        {cost ? <button className="upgrade-button" disabled={!affordable} onClick={onUpgrade}><span>Upgrade to {building.level === 1 ? "Veteran" : "Legendary"}</span><b>{costText(cost)}</b></button> : <div className="max-rank">★ MAXIMUM RANK</div>}
+        {cost ? <button className="upgrade-button" disabled={!affordable} onClick={onUpgrade}><span>Upgrade to {building.level === 1 ? "Veteran" : "Legendary"}</span><b>{costText(cost)}</b></button> : <div className="max-rank">{spec.category === "economy" ? "◆ TREASURY STRUCTURE" : "★ MAXIMUM RANK"}</div>}
         {unit && <button className="production-button" onClick={onToggle}>{building.productionPaused ? "Resume production" : "Hold production"}<small>{building.productionPaused ? "Rejoin deployment timing" : "Use for manual wave sync"}</small></button>}
+      </div>
+    </section>
+  );
+}
+
+function UnitInspector({ unit, game, localCommander, onClose }: { unit: Unit; game: GameState; localCommander: CommanderId; onClose: () => void }) {
+  const spec = UNIT_SPECS[unit.kind];
+  const commander = commanderForUnit(unit);
+  const faction = FACTIONS[game.factions[commander]];
+  const localTeam = teamForCommander(localCommander);
+  const allegiance = commander === localCommander ? "Your cohort" : unit.team === localTeam ? "Allied cohort" : "Enemy cohort";
+  const rank = unit.level === 1 ? "Established" : unit.level === 2 ? "Veteran" : "Legendary";
+  const damage = Math.round(spec.damage * unit.maxHp / spec.maxHp);
+  const strongAgainst = Object.entries(DAMAGE_MATRIX[spec.damageType])
+    .filter(([, multiplier]) => multiplier > 1)
+    .sort((left, right) => right[1] - left[1])
+    .map(([armor]) => armor)
+    .join(" · ");
+  const vulnerableTo = Object.entries(DAMAGE_MATRIX)
+    .filter(([, matchups]) => matchups[spec.armorType] > 1)
+    .sort((left, right) => right[1][spec.armorType] - left[1][spec.armorType])
+    .map(([damageType]) => damageType)
+    .join(" · ");
+
+  return (
+    <section className="building-inspector unit-inspector" aria-label={`Inspect ${spec.name}`}>
+      <button className="inspector-close" onClick={onClose} aria-label="Close cohort inspector">×</button>
+      <AtlasSprite src={faction.atlas} index={spec.atlasIndex} rows={4} columns={4} className="inspector-art" />
+      <div className="inspector-copy">
+        <span className="eyebrow">{allegiance} · {rank} rank</span>
+        <h3>{spec.name}</h3>
+        <p>{spec.description}</p>
+        <div className="inspector-traits">
+          <span><small>HEALTH</small><b>{Math.ceil(unit.hp)} / {unit.maxHp}{unit.shield > 0 ? ` +${Math.ceil(unit.shield)}` : ""}</b></span>
+          <span className="unit-damage-trait"><small>DAMAGE TYPE</small><b>{spec.damageType} · {damage}</b></span>
+          <span className="unit-armor-trait"><small>ARMOR TYPE</small><b>{spec.armorType}</b></span>
+          <span><small>RANGE</small><b>{spec.range}</b></span>
+          <span><small>ATTACK RATE</small><b>{spec.attackEvery.toFixed(2)}s</b></span>
+          <span><small>ABILITY</small><b>{spec.ability ?? "None"}</b></span>
+        </div>
+      </div>
+      <div className="unit-matchups">
+        <span><small>{spec.damageType.toUpperCase()} DAMAGE</small><b>{strongAgainst ? `Strong vs ${strongAgainst}` : "No armor advantage"}</b></span>
+        <span><small>{spec.armorType.toUpperCase()} ARMOR</small><b>{vulnerableTo ? `Vulnerable to ${vulnerableTo}` : "No damage weakness"}</b></span>
+        <span><small>TARGETING</small><b>{spec.flying ? "Flying · ground & air" : spec.targetsAir ? "Ground & air" : "Ground only"}</b></span>
       </div>
     </section>
   );
@@ -173,20 +238,21 @@ function TutorialCard({ game, localCommander, selected, onDismiss }: { game: Gam
   return (
     <aside className="tutorial-card">
       <span className="tutorial-step">FIRST COMMAND · {hasBuilding ? "03" : selected ? "02" : "01"} / 03</span>
-      <button onClick={onDismiss} aria-label="Dismiss tutorial">×</button>
+      <button type="button" className="tutorial-close" onClick={onDismiss} aria-label="Hide helper">×</button>
       {!hasBuilding && !selected && <><b>Choose the opening answer</b><p>Start in Troops or invest in Works. Damage and armor labels reveal what each cohort can counter.</p></>}
       {!hasBuilding && selected && <><b>Choose its X/Y position</b><p>Click a gold square, or start a touch inside the gold yard, drag the lifted preview, and release. Swipe outside the yard to move the battlefield.</p></>}
-      {hasBuilding && <><b>Grow, scout, adapt</b><p>Earn Marks every seven seconds and Timber from construction. Click a placed structure to upgrade or hold its production.</p></>}
+      {hasBuilding && <><b>Guard the recovery</b><p>Tap empty ground inside your base to move your ranged Keep Warden. It cannot leave the yard and enemy cohorts cannot target it.</p></>}
     </aside>
   );
 }
 
-function CommandDeck({ game, localCommander, tab, selected, inspected, onTab, onSelect, onBuy, onReprieve, onSync, onUpgrade, onToggleProduction, onCloseInspector }: {
+function CommandDeck({ game, localCommander, tab, selected, inspected, inspectedUnit, onTab, onSelect, onBuy, onReprieve, onSync, onUpgrade, onToggleProduction, onCloseInspector }: {
   game: GameState;
   localCommander: CommanderId;
   tab: CommandTab;
   selected: BuildingKind | null;
   inspected: Building | null;
+  inspectedUnit: Unit | null;
   onTab: (tab: CommandTab) => void;
   onSelect: (kind: BuildingKind) => void;
   onBuy: (item: ShopItemKind) => void;
@@ -214,7 +280,7 @@ function CommandDeck({ game, localCommander, tab, selected, inspected, onTab, on
       </div>
 
       <div className="command-content">
-        {inspected ? <BuildingInspector building={inspected} game={game} localCommander={localCommander} onUpgrade={onUpgrade} onToggle={onToggleProduction} onClose={onCloseInspector} /> : tab === "shop" ? (
+        {inspectedUnit ? <UnitInspector unit={inspectedUnit} game={game} localCommander={localCommander} onClose={onCloseInspector} /> : inspected ? <BuildingInspector building={inspected} game={game} localCommander={localCommander} onUpgrade={onUpgrade} onToggle={onToggleProduction} onClose={onCloseInspector} /> : tab === "shop" ? (
           <div className="shop-list">{SHOP_ITEM_KINDS.map((item, index) => <ShopCard key={item} item={item} game={game} localCommander={localCommander} hotkey={index + 1} onBuy={() => onBuy(item)} />)}</div>
         ) : (
           <div className={`foundry-list foundry-list--${tab}`}>{choices.map((kind, index) => <StructureCard key={kind} kind={kind} game={game} localCommander={localCommander} selected={selected === kind} hotkey={index + 1} onSelect={() => onSelect(kind)} />)}</div>
@@ -227,7 +293,7 @@ function CommandDeck({ game, localCommander, tab, selected, inspected, onTab, on
           <small>{game.syncEnabled[localCommander] ? `Wave in ${formatClock(game.syncClock[localCommander])}` : "S · group your deployments"}</small>
         </button>
         <button className={`reprieve-button${ready ? " is-ready" : ""}`} disabled={!ready} onClick={onReprieve} aria-label={ready ? "Cast Reprieve" : `Reprieve ready in ${formatClock(remaining)}`}>
-          <AtlasSprite src="/game/icons-atlas.png" index={3} className="reprieve-art" />
+          <AtlasSprite src="/game/icons-atlas-magenta-v1.png" index={3} className="reprieve-art" />
           <span><b>REPRIEVE</b><small>{game.reprieveUsed[localCommander] ? "SPENT" : ready ? "READY · SPACE" : `CHARGING · ${formatClock(remaining)}`}</small></span>
         </button>
       </div>
@@ -282,6 +348,7 @@ function ResultModal({ game, localCommander, onlineSnapshot, answer, copied, onA
 }
 
 export default function Home() {
+  const { phoneLandscape, phonePortrait } = useDeviceProfile();
   const {
     connection,
     snapshot,
@@ -306,8 +373,10 @@ export default function Home() {
   const [tab, setTab] = useState<CommandTab>("troops");
   const [selected, setSelected] = useState<BuildingKind | null>(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState<number | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [tutorial, setTutorial] = useState(true);
+  const [helperVisible, setHelperVisible] = useState(true);
   const [hoverMessage, setHoverMessage] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [copied, setCopied] = useState(false);
@@ -319,8 +388,9 @@ export default function Home() {
   const localCommander: CommanderId = onlineCommander ?? "player";
   const localTeam: Team = teamForCommander(localCommander);
   const rivalTeam: Team = localTeam === "player" ? "enemy" : "player";
-  const paused = overlay !== null || game.status !== "playing";
+  const paused = overlay !== null || game.status !== "playing" || (phonePortrait && showingGame && !online);
   const inspected = game.buildings.find((building) => building.id === selectedBuildingId && commanderForBuilding(building) === localCommander) ?? null;
+  const inspectedUnit = game.units.find((unit) => unit.id === selectedUnitId) ?? null;
 
   const tabChoices = useMemo(() => tab === "troops"
     ? factionBuildings(game.factions[localCommander], "troop")
@@ -358,14 +428,14 @@ export default function Home() {
       if (event.key.toLowerCase() === "p") { setOverlay((current) => current === "pause" ? null : "pause"); return; }
       if (event.key === "Escape") {
         if (overlay === "pause") setOverlay(null);
-        else if (selected || selectedBuildingId) { setSelected(null); setSelectedBuildingId(null); }
+        else if (selected || selectedBuildingId || inspectedUnit) { setSelected(null); setSelectedBuildingId(null); setSelectedUnitId(null); }
         else setOverlay("pause");
         return;
       }
       if (overlay) return;
-      if (event.key.toLowerCase() === "q") { setTab("troops"); setSelectedBuildingId(null); return; }
-      if (event.key.toLowerCase() === "w") { setTab("works"); setSelectedBuildingId(null); return; }
-      if (event.key.toLowerCase() === "e") { setTab("shop"); setSelectedBuildingId(null); return; }
+      if (event.key.toLowerCase() === "q") { setTab("troops"); setSelectedBuildingId(null); setSelectedUnitId(null); return; }
+      if (event.key.toLowerCase() === "w") { setTab("works"); setSelectedBuildingId(null); setSelectedUnitId(null); return; }
+      if (event.key.toLowerCase() === "e") { setTab("shop"); setSelectedBuildingId(null); setSelectedUnitId(null); return; }
       if (event.key.toLowerCase() === "s") {
         if (online) sendCommand({ action: "toggle_sync" });
         else setGame((current) => toggleSynchronization(current, localCommander));
@@ -381,9 +451,13 @@ export default function Home() {
           }
         } else {
           const kind = tabChoices[index];
-          if (kind && canAfford(game.resources[localCommander], BUILDING_SPECS[kind].cost) && commanderBuildingCount(game, localCommander) < BUILDING_CAP) {
+          if (kind
+            && canAfford(game.resources[localCommander], BUILDING_SPECS[kind].cost)
+            && commanderBuildingCount(game, localCommander) < BUILDING_CAP
+            && (BUILDING_SPECS[kind].category !== "economy" || commanderBuildingCount(game, localCommander, kind) < ECONOMY_BUILDING_CAP)) {
             setSelected(kind);
             setSelectedBuildingId(null);
+            setSelectedUnitId(null);
           }
         }
       }
@@ -395,9 +469,25 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [game, localCommander, online, overlay, selected, selectedBuildingId, sendCommand, showingGame, tab, tabChoices]);
+  }, [game, inspectedUnit, localCommander, online, overlay, selected, selectedBuildingId, sendCommand, showingGame, tab, tabChoices]);
 
-  const selectedDescription = selected ? BUILDING_SPECS[selected].description : inspected ? `${BUILDING_SPECS[inspected.kind].name} selected for upgrades and production control.` : null;
+  const selectedDescription = selected
+    ? BUILDING_SPECS[selected].description
+    : inspected
+      ? `${BUILDING_SPECS[inspected.kind].name} selected for upgrades and production control.`
+      : inspectedUnit
+        ? `${UNIT_SPECS[inspectedUnit.kind].name}: ${UNIT_SPECS[inspectedUnit.kind].damageType} damage · ${UNIT_SPECS[inspectedUnit.kind].armorType} armor.`
+        : null;
+  const hasLocalBuilding = game.stats.buildingsPlaced[localCommander] > 0;
+  const phoneCoachMessage = !hasLocalBuilding && !selected
+    ? "Choose a Foundry or invest in Works."
+    : !hasLocalBuilding && selected
+      ? "Tap or drag in the gold yard, then tap ✓ Place."
+      : "Tap empty base ground to move your Keep Warden.";
+  const dismissHelper = () => {
+    setTutorial(false);
+    setHelperVisible(false);
+  };
 
   const beginMatch = () => {
     if (!faction) return;
@@ -405,8 +495,10 @@ export default function Home() {
     setGame(createInitialState(faction));
     setSelected(null);
     setSelectedBuildingId(null);
+    setSelectedUnitId(null);
     setTab("troops");
     setTutorial(true);
+    setHelperVisible(true);
     setFeedback("");
     setCopied(false);
     setOverlay(null);
@@ -416,6 +508,7 @@ export default function Home() {
   const continueMatch = () => {
     setSelected(null);
     setSelectedBuildingId(null);
+    setSelectedUnitId(null);
     setTab("troops");
     setTutorial(false);
     if (online) {
@@ -428,6 +521,9 @@ export default function Home() {
   const goToTitle = () => {
     if (online) leaveOnlineRoom();
     setOverlay(null);
+    setSelected(null);
+    setSelectedBuildingId(null);
+    setSelectedUnitId(null);
     setStartStep("mode");
     setScreen("title");
   };
@@ -485,6 +581,7 @@ export default function Home() {
   }
 
   const localResources = game.resources[localCommander];
+  const localIncome = incomeBreakdownForCommander(game, localCommander);
   const ally = commandersForTeam(game, localTeam).find((commander) => commander !== localCommander);
   return (
     <main className="game-shell">
@@ -496,22 +593,36 @@ export default function Home() {
           localCommander={localCommander}
           selected={selected}
           selectedBuildingId={selectedBuildingId}
+          selectedUnitId={inspectedUnit?.id ?? null}
           onPlace={(kind, gridX, gridY) => {
             if (online) sendCommand({ action: "place_building", kind, gridX, gridY });
             else setGame((current) => placeBuilding(current, localCommander, kind, gridX, gridY));
           }}
-          onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelected(null); }}
-          onCancelSelection={() => { setSelected(null); setSelectedBuildingId(null); }}
+          onTouchPlacementCommitted={() => { if (phoneLandscape) setSelected(null); }}
+          onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelectedUnitId(null); setSelected(null); }}
+          onSelectUnit={(id) => { setSelectedUnitId(id); setSelectedBuildingId(null); setSelected(null); }}
+          onMoveKeepWarden={(x, y) => {
+            if (online) sendCommand({ action: "move_keep_warden", x, y });
+            else setGame((current) => moveKeepWarden(current, localCommander, x, y));
+          }}
+          onCancelSelection={() => { setSelected(null); setSelectedBuildingId(null); setSelectedUnitId(null); }}
           onHoverMessage={setHoverMessage}
         />
         <div className={`resource-panel resource-panel--${localTeam} is-local`}>
-          <span>YOUR RESERVES · +{incomeForCommander(game, localCommander)} IN {Math.max(1, Math.ceil(game.incomeClock))}S</span>
+          <span>YOUR RESERVES · +{incomeForCommander(game, localCommander)} NET / {incomeText(localIncome.gross)} RAW · IN {Math.max(1, Math.ceil(game.incomeClock))}S</span>
           <div><b>◆ {Math.floor(localResources.marks)}</b><b>▰ {Math.floor(localResources.timber)}</b><b>✦ {localResources.sigils}</b></div>
-          <small>{commanderLabel(localCommander).toUpperCase()} · {FACTIONS[game.factions[localCommander]].name.toUpperCase()}{ally ? ` · ALLY ${FACTIONS[game.factions[ally]].name.toUpperCase()}` : ""}</small>
+          <small>{commanderLabel(localCommander).toUpperCase()} · {FACTIONS[game.factions[localCommander]].name.toUpperCase()}{ally ? ` · ALLY ${FACTIONS[game.factions[ally]].name.toUpperCase()}` : ""} · KEEP WARDEN ACTIVE</small>
         </div>
         <div className={`resource-panel resource-panel--${rivalTeam} is-rival`}><span>{game.matchMode === "2v2" ? "RIVAL TEAM FORCES" : "RIVAL FORCES"}</span><b>{buildingCount(game, rivalTeam)} WORKS · {unitCount(game, rivalTeam)} AFIELD</b><small>{teamDisplayName(game, rivalTeam)} · +{incomeFor(game, rivalTeam)} recurring Marks</small></div>
-        <div className={`event-ribbon${selected ? " is-placement" : ""}`} role="status" aria-live="polite"><i /><span>{selected ? hoverMessage ?? "Drag inside the gold yard · Swipe elsewhere to move the map · Click on desktop" : game.event}</span>{selectedDescription && <small>{selectedDescription}</small>}</div>
-        {tutorial && game.status === "playing" && <TutorialCard game={game} localCommander={localCommander} selected={selected} onDismiss={() => setTutorial(false)} />}
+        {(!phoneLandscape || helperVisible) && (
+          <div className={`event-ribbon${selected ? " is-placement" : ""}`} role="status" aria-live="polite">
+            <i />
+            <span>{selected ? hoverMessage ?? (phoneLandscape ? "Tap or drag in the gold yard, then tap ✓ Place." : "Drag inside the gold yard · Swipe elsewhere to move the map · Click on desktop") : phoneLandscape && tutorial ? phoneCoachMessage : game.event}</span>
+            {selectedDescription && <small>{selectedDescription}</small>}
+            {phoneLandscape && game.status === "playing" && <button type="button" onClick={dismissHelper} aria-label="Hide helper">×</button>}
+          </div>
+        )}
+        {helperVisible && tutorial && game.status === "playing" && !phoneLandscape && <TutorialCard game={game} localCommander={localCommander} selected={selected} onDismiss={dismissHelper} />}
       </section>
       <CommandDeck
         game={game}
@@ -519,20 +630,22 @@ export default function Home() {
         tab={tab}
         selected={selected}
         inspected={inspected}
-        onTab={(nextTab) => { setTab(nextTab); setSelected(null); setSelectedBuildingId(null); }}
-        onSelect={(kind) => { setSelected((current) => current === kind ? null : kind); setSelectedBuildingId(null); }}
+        inspectedUnit={inspectedUnit}
+        onTab={(nextTab) => { setTab(nextTab); setSelected(null); setSelectedBuildingId(null); setSelectedUnitId(null); }}
+        onSelect={(kind) => { setSelected((current) => current === kind ? null : kind); setSelectedBuildingId(null); setSelectedUnitId(null); }}
         onBuy={(item) => online ? sendCommand({ action: "buy_item", item }) : setGame((current) => buyShopItem(current, localCommander, item))}
         onReprieve={() => online ? sendCommand({ action: "cast_reprieve" }) : setGame((current) => castReprieve(current, localCommander))}
         onSync={() => online ? sendCommand({ action: "toggle_sync" }) : setGame((current) => toggleSynchronization(current, localCommander))}
         onUpgrade={() => inspected && (online ? sendCommand({ action: "upgrade_building", buildingId: inspected.id }) : setGame((current) => upgradeBuilding(current, localCommander, inspected.id)))}
         onToggleProduction={() => inspected && (online ? sendCommand({ action: "toggle_production", buildingId: inspected.id }) : setGame((current) => toggleProduction(current, localCommander, inspected.id)))}
-        onCloseInspector={() => setSelectedBuildingId(null)}
+        onCloseInspector={() => { setSelectedBuildingId(null); setSelectedUnitId(null); }}
       />
 
       {overlay === "rules" && <RulesModal onClose={() => setOverlay(null)} />}
       {overlay === "pause" && <div className="modal-backdrop"><section className="pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-heading"><span className="eyebrow">{online ? "LIVE MATCH MENU" : "LEDGER PAUSED"}</span><h2 id="pause-heading">{online ? "The room remains live." : "The march is holding."}</h2><p>{online ? "Online battles continue while this panel is open. Your rival remains connected and the server keeps the ledger." : "No cohorts move and no income ticks while this panel is open."}</p><button className="primary-button" onClick={() => setOverlay(null)}>Return to battle <span>→</span></button><button className="secondary-button" onClick={() => setOverlay("rules")}>Open field guide</button><button className="text-button" onClick={() => setOverlay("leave")}>Leave this match</button></section></div>}
       {overlay === "leave" && <div className="modal-backdrop"><section className="pause-modal" role="dialog" aria-modal="true" aria-labelledby="leave-heading"><span className="eyebrow">ABANDON MATCH?</span><h2 id="leave-heading">{online ? "Your rival can claim the field." : "This ledger cannot be recovered."}</h2><p>{online ? "Leaving disconnects your seat. You have a short grace period to return before the match is forfeited." : "Return to the title screen and end this skirmish."}</p><div className="confirm-actions"><button className="primary-button" onClick={goToTitle}>Return to title</button><button className="secondary-button" onClick={() => setOverlay(null)}>Keep playing</button></div></section></div>}
       {game.status !== "playing" && <ResultModal game={game} localCommander={localCommander} onlineSnapshot={online ? snapshot : null} answer={feedback} copied={copied} onAnswer={setFeedback} onCopy={async () => { try { await navigator.clipboard.writeText(matchReport(game, feedback)); setCopied(true); } catch { setCopied(false); } }} onContinue={continueMatch} onRestart={online ? () => { setFeedback(""); setCopied(false); setOnlineReady(true); } : beginMatch} onTitle={goToTitle} />}
+      {phonePortrait && <div className="rotate-phone-prompt" role="dialog" aria-modal="true" aria-labelledby="rotate-phone-heading"><div><span aria-hidden="true">↻</span><h2 id="rotate-phone-heading">Rotate your phone</h2><p>Keepstorm plays in landscape.</p></div></div>}
     </main>
   );
 }

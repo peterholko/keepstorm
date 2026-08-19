@@ -1,32 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   BUILDING_SPECS,
   BUILD_AREAS,
   CELL_SIZE,
+  COMMANDER_IDS,
   FACTIONS,
   FACTION_IDS,
   GRID_COLUMNS,
   GRID_ROWS,
   KEEP_MAX_HP,
   KEEP_POSITIONS,
+  KEEP_WARDEN_ATLAS_INDEX,
   UNIT_SPECS,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  activeKeepWardens,
   buildAreasForCommander,
   commanderForBuilding,
   commanderForUnit,
   commandersForTeam,
+  keepWardenForCommander,
   teamDisplayName,
   teamForCommander,
   validatePlacement,
+  validateKeepWardenDestination,
   type Building,
   type BuildingKind,
   type CommanderId,
+  type CommanderRecord,
   type FactionId,
   type GameState,
   type GridPoint,
+  type KeepWarden,
   type Team,
   type Unit,
 } from "@/lib/keepstorm/engine";
@@ -37,11 +44,29 @@ import {
   stationaryUnitMotion,
   type UnitMotion,
 } from "@/lib/keepstorm/render-motion";
-import { placementCellFromClientPoint, TOUCH_PLACEMENT_LIFT_PX } from "@/lib/keepstorm/placement-input";
-import { drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
+import {
+  cellRectPercent,
+  gridRectPercent,
+  placementCellFromClientPoint,
+  shouldCancelPlacementFromContextMenu,
+  TOUCH_PLACEMENT_LIFT_PX,
+  unitIdAtWorldPoint,
+  worldPointFromClientPoint,
+  yardFrame,
+  yardZoomFactor,
+} from "@/lib/keepstorm/placement-input";
+import { assetLoadingPercent, atlasCellSizeForHeight, drawAtlasCell, loadProcessedAtlas } from "./atlas-assets";
+import { useDeviceProfile } from "./use-device-profile";
+
+const GAME_ATLAS_SOURCES = [
+  ...FACTION_IDS.map((faction) => FACTIONS[faction].keep.src),
+  ...FACTION_IDS.map((faction) => FACTIONS[faction].atlas),
+  "/game/icons-atlas-magenta-v1.png",
+] as const;
+const GAME_LOADING_STEPS = GAME_ATLAS_SOURCES.length + 1;
 
 interface LoadedArt {
-  keeps: Record<Team, HTMLCanvasElement>;
+  keeps: Record<FactionId, HTMLCanvasElement>;
   factions: Record<FactionId, HTMLCanvasElement>;
 }
 
@@ -50,8 +75,12 @@ interface GameCanvasProps {
   localCommander: CommanderId;
   selected: BuildingKind | null;
   selectedBuildingId: number | null;
+  selectedUnitId: number | null;
   onPlace: (kind: BuildingKind, gridX: number, gridY: number) => void;
+  onTouchPlacementCommitted: () => void;
   onSelectBuilding: (buildingId: number | null) => void;
+  onSelectUnit: (unitId: number) => void;
+  onMoveKeepWarden: (x: number, y: number) => void;
   onCancelSelection: () => void;
   onHoverMessage: (message: string | null) => void;
 }
@@ -88,19 +117,19 @@ function drawFootprint(context: CanvasRenderingContext2D, building: Building, co
   context.stroke();
 }
 
-function buildingDimensions(building: Building): { width: number; height: number } {
+function buildingSpriteHeight(building: Pick<Building, "kind">): number {
   const category = BUILDING_SPECS[building.kind].category;
-  if (category === "economy") return { width: 86, height: 104 };
-  if (category === "tower") return { width: 82, height: 132 };
-  if (category === "special") return { width: 92, height: 120 };
-  return { width: 118, height: 140 };
+  if (category === "economy") return 104;
+  if (category === "tower") return 132;
+  if (category === "special") return 120;
+  return 140;
 }
 
 function drawBuilding(context: CanvasRenderingContext2D, state: GameState, building: Building, atlas: HTMLCanvasElement, selected: boolean): void {
   const spec = BUILDING_SPECS[building.kind];
   const centerX = (building.gridX + spec.width / 2) * CELL_SIZE;
   const groundY = (building.gridY + spec.height) * CELL_SIZE + 8;
-  const { width, height } = buildingDimensions(building);
+  const { width, height } = atlasCellSizeForHeight(atlas, buildingSpriteHeight(building), 4, 4);
   const color = commanderColor(state, commanderForBuilding(building));
   drawFootprint(context, building, color, selected);
   context.save();
@@ -134,22 +163,31 @@ function drawBuilding(context: CanvasRenderingContext2D, state: GameState, build
   }
 }
 
-function unitDimensions(unit: Unit): { width: number; height: number } {
+function unitSpriteHeight(unit: Pick<Unit, "kind">): number {
   const role = UNIT_SPECS[unit.kind].role;
-  if (role === "vanguard") return { width: 62, height: 78 };
-  if (role === "siege") return { width: 72, height: 78 };
-  if (role === "air") return { width: 68, height: 70 };
-  if (role === "support") return { width: 55, height: 68 };
-  return { width: 57, height: 70 };
+  if (role === "vanguard" || role === "siege") return 78;
+  if (role === "air" || role === "ranged") return 70;
+  return 68;
 }
 
-function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Unit, atlas: HTMLCanvasElement): void {
+function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Unit, atlas: HTMLCanvasElement, selected: boolean): void {
   const spec = UNIT_SPECS[unit.kind];
-  const { width, height } = unitDimensions(unit);
+  const { width, height } = atlasCellSizeForHeight(atlas, unitSpriteHeight(unit), 4, 4);
   const float = spec.flying ? Math.sin(state.elapsed * 5 + unit.id) * 4 - 15 : spec.role === "support" ? Math.sin(state.elapsed * 4 + unit.id) * 2 - 3 : 0;
   const color = commanderColor(state, commanderForUnit(unit));
 
   context.save();
+  if (selected) {
+    context.fillStyle = "rgba(255, 225, 123, .16)";
+    context.strokeStyle = "#ffe17b";
+    context.lineWidth = 3;
+    context.setLineDash([7, 4]);
+    context.beginPath();
+    context.ellipse(unit.x, unit.y + 3, Math.max(26, width * .42), 13, 0, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    context.setLineDash([]);
+  }
   context.fillStyle = "rgba(5, 9, 7, .34)";
   context.beginPath();
   context.ellipse(unit.x, unit.y + 3, width * .28, spec.flying ? 6 : 8, 0, 0, Math.PI * 2);
@@ -177,17 +215,51 @@ function drawUnit(context: CanvasRenderingContext2D, state: GameState, unit: Uni
   drawHealthBar(context, unit.x, unit.y - height + float - 3, 36, unit.hp / unit.maxHp, color);
 }
 
+function drawKeepWarden(context: CanvasRenderingContext2D, state: GameState, keepWarden: KeepWarden, atlas: HTMLCanvasElement, local: boolean): void {
+  const color = commanderColor(state, keepWarden.commander);
+  const { width, height } = atlasCellSizeForHeight(atlas, 82, 4, 4);
+  context.save();
+  context.fillStyle = "rgba(5, 9, 7, .38)";
+  context.beginPath();
+  context.ellipse(keepWarden.x, keepWarden.y + 4, width * .3, 8, 0, 0, Math.PI * 2);
+  context.fill();
+  if (local) {
+    context.strokeStyle = color;
+    context.lineWidth = 3;
+    context.setLineDash([5, 5]);
+    context.beginPath();
+    context.arc(keepWarden.targetX, keepWarden.targetY, 15, 0, Math.PI * 2);
+    context.stroke();
+    context.setLineDash([]);
+  }
+  if (keepWarden.attackFlash > 0 || local) {
+    context.shadowColor = color;
+    context.shadowBlur = keepWarden.attackFlash > 0 ? 24 : 10;
+  }
+  drawAtlasCell(context, atlas, KEEP_WARDEN_ATLAS_INDEX, keepWarden.x, keepWarden.y - height / 2, width, height, keepWarden.team === "enemy", 4, 4);
+  context.restore();
+  if (local) {
+    context.fillStyle = "rgba(11, 15, 11, .78)";
+    context.fillRect(keepWarden.x - 42, keepWarden.y + 8, 84, 16);
+    context.fillStyle = "#fff3d5";
+    context.textAlign = "center";
+    context.font = "900 8px Trebuchet MS, sans-serif";
+    context.fillText("KEEP WARDEN", keepWarden.x, keepWarden.y + 19);
+  }
+}
+
 function drawKeep(context: CanvasRenderingContext2D, state: GameState, team: Team, atlas: HTMLCanvasElement): void {
   const base = KEEP_POSITIONS[team];
   const visualY = base.y - 41;
-  const width = 220;
   const height = 270;
+  const keep = FACTIONS[state.factions[team]].keep;
+  const { width } = atlasCellSizeForHeight(atlas, height, keep.rows, keep.columns);
   const color = teamColor(state, team);
   context.save();
   context.shadowColor = "rgba(6, 9, 7, .62)";
   context.shadowBlur = 20;
   context.shadowOffsetY = 10;
-  drawAtlasCell(context, atlas, 0, base.x, visualY - 28, width, height, team === "enemy");
+  drawAtlasCell(context, atlas, keep.index, base.x, visualY - 28, width, height, team === "enemy", keep.rows, keep.columns);
   context.restore();
   drawHealthBar(context, base.x, visualY - 180, 122, state.keeps[team] / KEEP_MAX_HP, color);
 
@@ -306,32 +378,79 @@ function drawRoute(context: CanvasRenderingContext2D, path: GridPoint[] | undefi
   context.restore();
 }
 
-export default function GameCanvas({ state, localCommander, selected, selectedBuildingId, onPlace, onSelectBuilding, onCancelSelection, onHoverMessage }: GameCanvasProps) {
+export default function GameCanvas({ state, localCommander, selected, selectedBuildingId, selectedUnitId, onPlace, onTouchPlacementCommitted, onSelectBuilding, onSelectUnit, onMoveKeepWarden, onCancelSelection, onHoverMessage }: GameCanvasProps) {
+  const { phoneLandscape } = useDeviceProfile();
   const localTeam = teamForCommander(localCommander);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [art, setArt] = useState<LoadedArt | null>(null);
+  const [loadedAssetCount, setLoadedAssetCount] = useState(0);
+  const [assetLoadFailed, setAssetLoadFailed] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [hover, setHover] = useState<HoverCell | null>(null);
   const [scrollRatio, setScrollRatio] = useState(0);
   const [renderScale, setRenderScale] = useState(1);
+  const [mapZoom, setMapZoom] = useState<"field" | "yard">("field");
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [pendingCell, setPendingCell] = useState<HoverCell | null>(null);
   const unitMotionsRef = useRef<Map<number, UnitMotion>>(new Map());
+  const keepWardenMotionsRef = useRef<Map<CommanderId, UnitMotion>>(new Map());
   const previousElapsedRef = useRef<number | null>(null);
   const snapshotAtRef = useRef(0);
+  const hoverRef = useRef<HoverCell | null>(null);
   const touchPlacementPointerRef = useRef<number | null>(null);
+  const lastPointerTypeRef = useRef<string | null>(null);
   const lastTouchPlacementAtRef = useRef(-Infinity);
+  const touchNavigationRef = useRef<{ pointerId: number; startX: number; startY: number; moved: boolean } | null>(null);
+  const lastTouchPanAtRef = useRef(-Infinity);
+  const previousSelectedRef = useRef<BuildingKind | null>(null);
+  const localBuildAreas = useMemo(
+    () => [...buildAreasForCommander({ matchMode: state.matchMode }, localCommander)],
+    [localCommander, state.matchMode],
+  );
+  const widestBuildArea = useMemo(() => Math.max(...localBuildAreas.map((area) => area.maxX - area.minX + 1)), [localBuildAreas]);
+  const yardScale = useMemo(
+    () => yardZoomFactor(viewportSize.width, viewportSize.height, 0, widestBuildArea),
+    [viewportSize.height, viewportSize.width, widestBuildArea],
+  );
+
+  const frameYard = useCallback((preferUpper = false, behavior: ScrollBehavior = "smooth") => {
+    const viewport = scrollRef.current;
+    if (!viewport || !viewport.scrollWidth || !viewport.scrollHeight) return;
+    const currentCenter = preferUpper ? null : {
+      x: (viewport.scrollLeft + viewport.clientWidth / 2) / viewport.scrollWidth * WORLD_WIDTH,
+      y: (viewport.scrollTop + viewport.clientHeight / 2) / viewport.scrollHeight * WORLD_HEIGHT,
+    };
+    const target = yardFrame(localBuildAreas, currentCenter);
+    if (!target) return;
+    viewport.scrollTo({
+      left: target.x / WORLD_WIDTH * viewport.scrollWidth - viewport.clientWidth / 2,
+      top: target.y / WORLD_HEIGHT * viewport.scrollHeight - viewport.clientHeight / 2,
+      behavior,
+    });
+  }, [localBuildAreas]);
+
+  const frameYardAfterLayout = useCallback((preferUpper = false) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => frameYard(preferUpper)));
+  }, [frameYard]);
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      loadProcessedAtlas("/game/daybreak-atlas.png"),
-      loadProcessedAtlas("/game/nightveil-atlas.png"),
-      ...FACTION_IDS.map((faction) => loadProcessedAtlas(FACTIONS[faction].atlas)),
-    ]).then(([playerKeep, enemyKeep, ...factionArt]) => {
+    let completed = 0;
+    const requests = GAME_ATLAS_SOURCES.map((source) => loadProcessedAtlas(source).then((atlas) => {
+      completed += 1;
+      if (active) setLoadedAssetCount(completed);
+      return atlas;
+    }));
+    Promise.all(requests.slice(0, FACTION_IDS.length * 2)).then((loadedAtlases) => {
       if (!active) return;
+      const keepArt = loadedAtlases.slice(0, FACTION_IDS.length);
+      const factionArt = loadedAtlases.slice(FACTION_IDS.length);
+      const keeps = Object.fromEntries(FACTION_IDS.map((faction, index) => [faction, keepArt[index]])) as Record<FactionId, HTMLCanvasElement>;
       const factions = Object.fromEntries(FACTION_IDS.map((faction, index) => [faction, factionArt[index]])) as Record<FactionId, HTMLCanvasElement>;
-      setArt({ keeps: { player: playerKeep, enemy: enemyKeep }, factions });
-    }).catch(() => undefined);
+      setArt({ keeps, factions });
+    }).catch(() => { if (active) setAssetLoadFailed(true); });
+    requests.at(-1)?.catch(() => { if (active) setAssetLoadFailed(true); });
     return () => { active = false; };
   }, []);
 
@@ -352,9 +471,63 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
 
   useEffect(() => {
     const viewport = scrollRef.current;
+    if (!viewport) return;
+    const updateViewportSize = () => setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
+    updateViewportSize();
+    const observer = new ResizeObserver(updateViewportSize);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
     if (!selected || !viewport) return;
+    if (phoneLandscape) return;
     viewport.scrollTo({ left: localTeam === "player" ? 0 : viewport.scrollWidth - viewport.clientWidth, behavior: "smooth" });
-  }, [localTeam, selected]);
+  }, [localTeam, phoneLandscape, selected]);
+
+  useEffect(() => {
+    const previouslySelected = previousSelectedRef.current;
+    previousSelectedRef.current = selected;
+    if (!phoneLandscape) {
+      const animationFrame = window.requestAnimationFrame(() => setMapZoom("field"));
+      return () => window.cancelAnimationFrame(animationFrame);
+    }
+    if (!selected) {
+      const animationFrame = window.requestAnimationFrame(() => setMapZoom("field"));
+      return () => window.cancelAnimationFrame(animationFrame);
+    }
+    if (selected === previouslySelected) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      setMapZoom("yard");
+      frameYardAfterLayout(previouslySelected === null);
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [frameYardAfterLayout, phoneLandscape, selected]);
+
+  useLayoutEffect(() => {
+    if (!phoneLandscape || mapZoom !== "field") return;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+
+    const resetVerticalFrame = () => {
+      // iOS can retain the old lower-yard scroll anchor while the world shrinks.
+      // Assigning scrollTop directly avoids a stale smooth-scroll animation.
+      viewport.scrollTop = 0;
+    };
+
+    resetVerticalFrame();
+    let trailingFrame = 0;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      resetVerticalFrame();
+      trailingFrame = window.requestAnimationFrame(resetVerticalFrame);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(layoutFrame);
+      if (trailingFrame) window.cancelAnimationFrame(trailingFrame);
+    };
+  }, [mapZoom, phoneLandscape, viewportSize.height, viewportSize.width]);
 
   useEffect(() => {
     const viewport = scrollRef.current;
@@ -379,6 +552,28 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     return validatePlacement(state, localCommander, selected, hover.x, hover.y);
   }, [hover, localCommander, selected, state]);
 
+  const pendingValidation = useMemo(() => {
+    if (!selected || !pendingCell) return null;
+    return validatePlacement(state, localCommander, selected, pendingCell.x, pendingCell.y);
+  }, [localCommander, pendingCell, selected, state]);
+  const pendingReason = pendingValidation?.reason;
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      setPendingCell(null);
+      setHover(null);
+      hoverRef.current = null;
+      onHoverMessage(null);
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [onHoverMessage, selected]);
+
+  useEffect(() => {
+    if (!pendingReason) return;
+    const animationFrame = window.requestAnimationFrame(() => onHoverMessage(pendingReason));
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [onHoverMessage, pendingReason]);
+
   useEffect(() => {
     const now = performance.now();
     const previousElapsed = previousElapsedRef.current;
@@ -400,6 +595,20 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     }
 
     unitMotionsRef.current = nextMotions;
+    const previousKeepWardenMotions = keepWardenMotionsRef.current;
+    const nextKeepWardenMotions = new Map<CommanderId, UnitMotion>();
+    for (const keepWarden of activeKeepWardens(state)) {
+      const previous = previousKeepWardenMotions.get(keepWarden.commander);
+      const jumped = previous && Math.hypot(previous.toX - keepWarden.x, previous.toY - keepWarden.y) > CELL_SIZE * 8;
+      if (!previous || reset || jumped) {
+        nextKeepWardenMotions.set(keepWarden.commander, stationaryUnitMotion(keepWarden, now));
+      } else if (previous.toX === keepWarden.x && previous.toY === keepWarden.y) {
+        nextKeepWardenMotions.set(keepWarden.commander, previous);
+      } else {
+        nextKeepWardenMotions.set(keepWarden.commander, retargetUnitMotion(previous, keepWarden, now, duration));
+      }
+    }
+    keepWardenMotionsRef.current = nextKeepWardenMotions;
     previousElapsedRef.current = state.elapsed;
     snapshotAtRef.current = now;
   }, [state]);
@@ -410,15 +619,31 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     const context = canvas.getContext("2d");
     if (!context) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const shouldAnimate = !reducedMotion && state.status === "playing" && (state.units.length > 0 || state.effects.length > 0);
+    const shouldAnimate = !reducedMotion && state.status === "playing" && (
+      state.units.length > 0
+      || state.effects.length > 0
+      || activeKeepWardens(state).some((keepWarden) => keepWarden.attackFlash > 0 || Math.hypot(keepWarden.targetX - keepWarden.x, keepWarden.targetY - keepWarden.y) > 1)
+    );
     let animationFrame = 0;
     let active = true;
 
     const drawFrame = (now: number) => {
       const snapshotAge = reducedMotion ? 0 : Math.max(0, Math.min(.25, (now - snapshotAtRef.current) / 1000));
+      const renderedKeepWardens = Object.fromEntries(COMMANDER_IDS.map((commander) => {
+        const keepWarden = keepWardenForCommander(state, commander);
+        const position = reducedMotion
+          ? keepWarden
+          : sampleUnitMotion(keepWardenMotionsRef.current.get(commander) ?? stationaryUnitMotion(keepWarden, now), now);
+        return [commander, {
+          ...keepWarden,
+          ...position,
+          attackFlash: Math.max(0, keepWarden.attackFlash - snapshotAge),
+        }];
+      })) as CommanderRecord<KeepWarden>;
       const renderState: GameState = {
         ...state,
         elapsed: state.elapsed + snapshotAge,
+        keepWardens: renderedKeepWardens,
         units: state.units.map((unit) => {
           const position = reducedMotion ? unit : sampleUnitMotion(unitMotionsRef.current.get(unit.id) ?? stationaryUnitMotion(unit, now), now);
           return { ...unit, ...position, attackFlash: Math.max(0, unit.attackFlash - snapshotAge) };
@@ -456,15 +681,16 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
         if (hoverValidation.valid) drawRoute(context, hoverValidation.path);
         context.save();
         context.globalAlpha = hoverValidation.valid ? .72 : .42;
-        const dimensions = buildingDimensions({ kind: selected } as Building);
+        const spriteHeight = buildingSpriteHeight({ kind: selected });
+        const dimensions = atlasCellSizeForHeight(art.factions[renderState.factions[localCommander]], spriteHeight, 4, 4);
         const centerX = (hover.x + spec.width / 2) * CELL_SIZE;
         const groundY = (hover.y + spec.height) * CELL_SIZE + 8;
         drawAtlasCell(context, art.factions[renderState.factions[localCommander]], spec.atlasIndex, centerX, groundY - dimensions.height / 2, dimensions.width, dimensions.height, false, 4, 4);
         context.restore();
       }
 
-      drawKeep(context, renderState, "player", art.keeps.player);
-      drawKeep(context, renderState, "enemy", art.keeps.enemy);
+      drawKeep(context, renderState, "player", art.keeps[renderState.factions.player]);
+      drawKeep(context, renderState, "enemy", art.keeps[renderState.factions.enemy]);
 
       const fieldObjects: Array<{ y: number; draw: () => void }> = [];
       for (const building of renderState.buildings) {
@@ -477,7 +703,19 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
       for (const unit of renderState.units) {
         fieldObjects.push({
           y: unit.y,
-          draw: () => drawUnit(context, renderState, unit, art.factions[renderState.factions[commanderForUnit(unit)]]),
+          draw: () => drawUnit(context, renderState, unit, art.factions[renderState.factions[commanderForUnit(unit)]], selectedUnitId === unit.id),
+        });
+      }
+      for (const keepWarden of activeKeepWardens(renderState)) {
+        fieldObjects.push({
+          y: keepWarden.y,
+          draw: () => drawKeepWarden(
+            context,
+            renderState,
+            keepWarden,
+            art.factions[renderState.factions[keepWarden.commander]],
+            keepWarden.commander === localCommander,
+          ),
         });
       }
       fieldObjects.sort((left, right) => left.y - right.y).forEach((object) => object.draw());
@@ -491,7 +729,7 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
       active = false;
       window.cancelAnimationFrame(animationFrame);
     };
-  }, [art, hover, hoverValidation, localCommander, localTeam, renderScale, selected, selectedBuildingId, state]);
+  }, [art, hover, hoverValidation, localCommander, localTeam, renderScale, selected, selectedBuildingId, selectedUnitId, state]);
 
   const cellFromClientPoint = (clientX: number, clientY: number, liftY = 0): HoverCell | null => {
     const canvas = canvasRef.current;
@@ -507,6 +745,7 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
   );
 
   const updateHover = (cell: HoverCell | null) => {
+    hoverRef.current = cell;
     setHover(cell);
     if (!cell || !selected) onHoverMessage(null);
     else onHoverMessage(validatePlacement(state, localCommander, selected, cell.x, cell.y).reason);
@@ -531,6 +770,7 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     canvasRef.current?.focus({ preventScroll: true });
     if (event.pointerType !== "touch" || !event.isPrimary || !selected) return;
     event.preventDefault();
+    setPendingCell(null);
     touchPlacementPointerRef.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
     updateHover(cellFromPointer(event, TOUCH_PLACEMENT_LIFT_PX));
@@ -553,7 +793,7 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     touchPlacementPointerRef.current = null;
     lastTouchPlacementAtRef.current = performance.now();
     updateHover(cell);
-    if (commitPlacementAt(cell)) updateHover(null);
+    setPendingCell(cell);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
@@ -561,8 +801,22 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     if (touchPlacementPointerRef.current !== event.pointerId) return;
     touchPlacementPointerRef.current = null;
     lastTouchPlacementAtRef.current = performance.now();
-    updateHover(null);
+    if (hoverRef.current) setPendingCell(hoverRef.current);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const confirmTouchPlacement = () => {
+    if (!selected || !pendingCell || !pendingValidation?.valid) return;
+    onPlace(selected, pendingCell.x, pendingCell.y);
+    setPendingCell(null);
+    updateHover(null);
+    onTouchPlacementCommitted();
+  };
+
+  const cancelPendingPlacement = () => {
+    setPendingCell(null);
+    updateHover(null);
+    onCancelSelection();
   };
 
   const handleBuildZoneClick = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -572,13 +826,39 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
     commitPlacementAt(cell);
   };
 
-  const selectAtCell = (cell: GridPoint) => {
+  const selectAtCell = (cell: GridPoint): boolean => {
     const hit = [...state.buildings].reverse().find((building) => {
       if (commanderForBuilding(building) !== localCommander) return false;
       const spec = BUILDING_SPECS[building.kind];
       return cell.x >= building.gridX && cell.x < building.gridX + spec.width && cell.y >= building.gridY && cell.y < building.gridY + spec.height;
     });
     onSelectBuilding(hit?.id ?? null);
+    return Boolean(hit);
+  };
+
+  const selectUnitAtClientPoint = (clientX: number, clientY: number): boolean => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    const bounds = canvas.getBoundingClientRect();
+    const point = worldPointFromClientPoint(clientX, clientY, bounds);
+    const hitRadius = Math.min(84, Math.max(48, 26 * WORLD_HEIGHT / Math.max(1, bounds.height)));
+    const now = performance.now();
+    const unitId = unitIdAtWorldPoint(state.units.map((unit) => {
+      const motion = unitMotionsRef.current.get(unit.id);
+      const position = motion ? sampleUnitMotion(motion, now) : unit;
+      return { id: unit.id, x: position.x, y: position.y };
+    }), point, hitRadius);
+    if (unitId === null) return false;
+    onSelectUnit(unitId);
+    return true;
+  };
+
+  const commandKeepWardenAtCell = (cell: GridPoint) => {
+    const x = cell.x * CELL_SIZE + CELL_SIZE / 2;
+    const y = cell.y * CELL_SIZE + CELL_SIZE / 2;
+    const validation = validateKeepWardenDestination(state, localCommander, x, y);
+    onHoverMessage(validation.reason);
+    if (validation.valid) onMoveKeepWarden(x, y);
   };
 
   const updateScrollRatio = () => {
@@ -601,23 +881,53 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
   };
 
   const cameraLabel = scrollRatio < .18 ? `${FACTIONS[state.factions.player].name.toUpperCase()} YARD` : scrollRatio > .82 ? `${FACTIONS[state.factions.enemy].name.toUpperCase()} YARD` : "CONTESTED ROAD";
+  const pendingRect = selected && pendingCell ? cellRectPercent(pendingCell, BUILDING_SPECS[selected]) : null;
+  const completedLoadingSteps = loadedAssetCount + (mapReady ? 1 : 0);
+  const loadingPercent = assetLoadingPercent(completedLoadingSteps, GAME_LOADING_STEPS);
+  const loading = !art || !mapReady || loadedAssetCount < GAME_ATLAS_SOURCES.length;
 
   return (
     <div className="battlefield-frame">
-      {(!art || !mapReady) && <div className="battlefield-loading"><span />Preparing the Twin Yards…</div>}
+      {loading && (
+        <div className={`battlefield-loading${assetLoadFailed ? " is-error" : ""}`} role={assetLoadFailed ? "alert" : "status"} aria-live="polite">
+          <div className="battlefield-loading-copy">
+            <span>{assetLoadFailed ? "Battlefield art failed to load" : "Preparing the Twin Yards…"}</span>
+            <b>{assetLoadFailed ? "!" : `${loadingPercent}%`}</b>
+          </div>
+          <div
+            className="battlefield-loading-track"
+            role="progressbar"
+            aria-label="Battlefield loading progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={loadingPercent}
+          >
+            <i style={{ width: `${loadingPercent}%` }} />
+          </div>
+          <small>{assetLoadFailed ? "Reload the page to try again." : `${completedLoadingSteps} of ${GAME_LOADING_STEPS} assets ready`}</small>
+        </div>
+      )}
       <div ref={scrollRef} className="battlefield-scroll" onScroll={updateScrollRatio}>
-        <div className="battlefield-world">
+        <div
+          className="battlefield-world"
+          style={phoneLandscape ? { height: `${(mapZoom === "yard" ? yardScale : 1) * 100}%` } : undefined}
+          onPointerDownCapture={(event) => { lastPointerTypeRef.current = event.pointerType; }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="battlefield-map" src="/game/battlefield-panorama.png" alt="" draggable={false} onLoad={() => setMapReady(true)} />
           <canvas
             ref={canvasRef}
             width={Math.round(WORLD_WIDTH * renderScale)}
             height={Math.round(WORLD_HEIGHT * renderScale)}
-            className={selected ? "battlefield-canvas is-building" : "battlefield-canvas"}
-            aria-label="A double-width battlefield. Scroll horizontally and choose a structure below. With a mouse, click in a highlighted build yard to build. On a touch screen, drag and release inside a highlighted build yard; swipe elsewhere to move the battlefield. With no structure selected, choose one of your buildings to inspect it."
+            className={selected ? "battlefield-canvas is-building" : "battlefield-canvas is-commanding"}
+            aria-label="A double-width battlefield. Scroll horizontally and choose a structure below. With a mouse, click in a highlighted build yard to build. On a touch screen, drag and release inside a highlighted build yard; swipe elsewhere to move the battlefield. With no structure selected, choose a cohort to inspect its damage and armor, choose one of your buildings to inspect it, or tap empty ground inside your base to move your Keep Warden."
             tabIndex={0}
             onPointerMove={(event) => {
-              if (event.pointerType === "touch") return;
+              if (event.pointerType === "touch") {
+                const navigation = touchNavigationRef.current;
+                if (navigation?.pointerId === event.pointerId && Math.hypot(event.clientX - navigation.startX, event.clientY - navigation.startY) > 12) navigation.moved = true;
+                return;
+              }
               updateHover(cellFromPointer(event));
             }}
             onPointerLeave={(event) => {
@@ -627,24 +937,44 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
             onPointerDown={(event) => {
               if (event.button === 2) onCancelSelection();
               if (event.pointerType === "touch" && selected) lastTouchPlacementAtRef.current = performance.now();
+              if (event.pointerType === "touch" && !selected && event.isPrimary) {
+                touchNavigationRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
+              }
             }}
             onPointerUp={(event) => {
               if (event.pointerType === "touch" && selected) lastTouchPlacementAtRef.current = performance.now();
+              const navigation = touchNavigationRef.current;
+              if (event.pointerType === "touch" && navigation?.pointerId === event.pointerId) {
+                if (navigation.moved) lastTouchPanAtRef.current = performance.now();
+                touchNavigationRef.current = null;
+              }
             }}
             onPointerCancel={(event) => {
               if (event.pointerType === "touch" && selected) lastTouchPlacementAtRef.current = performance.now();
+              if (touchNavigationRef.current?.pointerId === event.pointerId) {
+                lastTouchPanAtRef.current = performance.now();
+                touchNavigationRef.current = null;
+              }
             }}
             onClick={(event) => {
-              if (performance.now() - lastTouchPlacementAtRef.current < 700) return;
+              if (performance.now() - lastTouchPlacementAtRef.current < 700 || performance.now() - lastTouchPanAtRef.current < 700) return;
               const cell = cellFromPointer(event);
               updateHover(cell);
               if (!cell) return;
-              if (!selected) { selectAtCell(cell); return; }
+              if (!selected) {
+                if (selectUnitAtClientPoint(event.clientX, event.clientY)) return;
+                if (!selectAtCell(cell)) commandKeepWardenAtCell(cell);
+                return;
+              }
               const validation = validatePlacement(state, localCommander, selected, cell.x, cell.y);
               onHoverMessage(validation.reason);
               if (validation.valid) onPlace(selected, cell.x, cell.y);
             }}
-            onContextMenu={(event) => event.preventDefault()}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              const pointerType = (event.nativeEvent as PointerEvent).pointerType || lastPointerTypeRef.current || undefined;
+              if (shouldCancelPlacementFromContextMenu(pointerType, touchPlacementPointerRef.current !== null)) onCancelSelection();
+            }}
             onKeyDown={(event) => {
               const key = event.key.toLowerCase();
               if (key === "a") { event.preventDefault(); panCamera(-1); return; }
@@ -675,18 +1005,14 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
           />
           {selected && (
             <div className="build-zone-input-layer" aria-hidden="true">
-              {buildAreasForCommander(state, localCommander).map((zone, index) => (
-                <button
+              {localBuildAreas.map((zone, index) => {
+                const rect = gridRectPercent(zone);
+                return <button
                   key={`${zone.minX}-${zone.minY}-${index}`}
                   type="button"
                   tabIndex={-1}
                   className="build-zone-input"
-                  style={{
-                    left: `${zone.minX / GRID_COLUMNS * 100}%`,
-                    top: `${zone.minY / GRID_ROWS * 100}%`,
-                    width: `${(zone.maxX - zone.minX + 1) / GRID_COLUMNS * 100}%`,
-                    height: `${(zone.maxY - zone.minY + 1) / GRID_ROWS * 100}%`,
-                  }}
+                  style={{ left: `${rect.left}%`, top: `${rect.top}%`, width: `${rect.width}%`, height: `${rect.height}%` }}
                   onPointerDown={handleBuildZonePointerDown}
                   onPointerMove={handleBuildZonePointerMove}
                   onPointerUp={handleBuildZonePointerUp}
@@ -694,32 +1020,51 @@ export default function GameCanvas({ state, localCommander, selected, selectedBu
                   onLostPointerCapture={(event) => {
                     if (touchPlacementPointerRef.current !== event.pointerId) return;
                     touchPlacementPointerRef.current = null;
-                    updateHover(null);
+                    if (hoverRef.current) setPendingCell(hoverRef.current);
                   }}
                   onPointerLeave={(event) => {
-                    if (event.pointerType === "touch" && touchPlacementPointerRef.current === event.pointerId) return;
+                    if (event.pointerType === "touch") return;
                     updateHover(null);
                   }}
                   onClick={handleBuildZoneClick}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    onCancelSelection();
+                    const pointerType = (event.nativeEvent as PointerEvent).pointerType || lastPointerTypeRef.current || undefined;
+                    if (shouldCancelPlacementFromContextMenu(pointerType, touchPlacementPointerRef.current !== null)) onCancelSelection();
                   }}
-                />
-              ))}
+                />;
+              })}
+            </div>
+          )}
+          {selected && pendingCell && pendingRect && (
+            <div
+              className={`placement-confirmation${pendingValidation?.valid ? " is-valid" : " is-invalid"}`}
+              style={{
+                left: `clamp(0px, ${pendingRect.left + pendingRect.width + .8}%, calc(100% - 118px))`,
+                top: `clamp(48px, ${pendingRect.top + pendingRect.height / 2}%, calc(100% - 48px))`,
+              }}
+              role="group"
+              aria-label="Confirm structure placement"
+              data-grid-x={pendingCell.x}
+              data-grid-y={pendingCell.y}
+            >
+              <button type="button" className="placement-confirm" onClick={confirmTouchPlacement} disabled={!pendingValidation?.valid}>✓ Place</button>
+              <button type="button" className="placement-cancel" onClick={cancelPendingPlacement} aria-label="Cancel structure placement">✕</button>
             </div>
           )}
         </div>
       </div>
-      <div className="camera-controls" aria-label="Battlefield camera controls">
-        <button onClick={() => panCamera(-1)} aria-label="Scroll battlefield left">‹</button>
-        <label>
-          <span>{cameraLabel}</span>
-          <input type="range" min="0" max="100" value={Math.round(scrollRatio * 100)} onChange={(event) => moveCameraTo(Number(event.target.value) / 100, "auto")} aria-label="Battlefield horizontal position" />
-          <small>A / D · WHEEL · SWIPE</small>
-        </label>
-        <button onClick={() => panCamera(1)} aria-label="Scroll battlefield right">›</button>
-      </div>
+      {!phoneLandscape && (
+        <div className="camera-controls" aria-label="Battlefield camera controls">
+          <button onClick={() => panCamera(-1)} aria-label="Scroll battlefield left">‹</button>
+          <label>
+            <span>{cameraLabel}</span>
+            <input type="range" min="0" max="100" value={Math.round(scrollRatio * 100)} onChange={(event) => moveCameraTo(Number(event.target.value) / 100, "auto")} aria-label="Battlefield horizontal position" />
+            <small>A / D · WHEEL · SWIPE</small>
+          </label>
+          <button onClick={() => panCamera(1)} aria-label="Scroll battlefield right">›</button>
+        </div>
+      )}
     </div>
   );
 }

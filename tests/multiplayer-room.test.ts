@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInitialState, createMultiplayerState } from "../lib/keepstorm/engine.ts";
+import { createInitialState, createMultiplayerState, keepWardenForCommander } from "../lib/keepstorm/engine.ts";
 import { isGameCommand, normalizeRoomCode, parseClientMessage } from "../lib/multiplayer/protocol.ts";
 import { advanceMultiplayerGame, applyGameCommand, forfeitGame, phaseForGame } from "../lib/multiplayer/room.ts";
 
@@ -12,6 +12,24 @@ test("multiplayer messages accept only bounded, versioned battlefield commands",
   assert.equal(isGameCommand({ action: "place_building", kind: "dawn_bastion", gridX: 9, gridY: 4 }), true);
   assert.equal(isGameCommand({ action: "place_building", kind: "not_a_building", gridX: 9, gridY: 4 }), false);
   assert.equal(isGameCommand({ action: "upgrade_building", buildingId: -1 }), false);
+  assert.equal(isGameCommand({ action: "move_keep_warden", x: 400, y: 240 }), true);
+  assert.equal(isGameCommand({ action: "move_keep_warden", x: 400.5, y: 240 }), false);
+  assert.equal(isGameCommand({ action: "move_keep_warden", x: 9_999, y: 240 }), false);
+});
+
+test("authoritative Keep Warden commands enforce each online commander's yard", () => {
+  const initial = createMultiplayerState("2v2", {});
+  const northMove = applyGameCommand(initial, "player", { action: "move_keep_warden", x: 400, y: 240 });
+  assert.equal(northMove.accepted, true);
+  assert.equal(keepWardenForCommander(northMove.state, "player").targetY, 240);
+
+  const northInvadesSouth = applyGameCommand(northMove.state, "player", { action: "move_keep_warden", x: 400, y: 624 });
+  assert.equal(northInvadesSouth.accepted, false);
+  assert.match(northInvadesSouth.message, /assigned base yard/i);
+
+  const southMove = applyGameCommand(northMove.state, "player_ally", { action: "move_keep_warden", x: 400, y: 624 });
+  assert.equal(southMove.accepted, true);
+  assert.equal(keepWardenForCommander(southMove.state, "player_ally").targetY, 624);
 });
 
 test("each online seat can commission only its own faction inside its own yard", () => {

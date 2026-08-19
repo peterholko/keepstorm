@@ -45,12 +45,12 @@ The committed Alpha art is original and was generated specifically for this proj
 - `public/game/title-art.jpg` — title-screen battle illustration
 - `public/game/battlefield.jpg` — straight-overhead Twin Yards board
 - `public/game/battlefield-panorama.png` — lossless 3200 × 896 mirrored Twin Yards board with centered keeps, aligned split construction fields, and two intentional outer river crossings
-- `public/game/daybreak-atlas.png` — Keep, four Foundries, and three cohorts
-- `public/game/nightveil-atlas.png` — opposing equivalents with independent faction treatment
-- `public/game/icons-atlas.png` — counter, Reprieve, armor, and currency emblems
+- `public/game/daybreak-atlas-magenta-v1.png` and `public/game/nightveil-atlas-magenta-v1.png` — opposing Keep atlases
+- `public/game/daybreak-depth-atlas-magenta-v1.png`, `public/game/briarcrown-depth-atlas-magenta-v1.png`, and `public/game/stormglass-depth-atlas-magenta-v1.png` — faction structures, cohorts, and effects
+- `public/game/icons-atlas-magenta-v1.png` — counter, Reprieve, armor, and currency emblems
 - `public/og.png` — finished 1200 × 630 social share card
 
-The generated originals remain in the project’s art-generation archive; deployment-ready derivatives live in `public/game`. Atlas backdrops are removed into alpha at runtime with a connected-edge key so the same illustrations sit cleanly over both the battlefield and the interface.
+Byte-for-byte backups of the previous atlases and the regenerated source atlases live in `assets/source`. Deployment-ready derivatives live in `public/game`. The runtime samples each generated atlas border and converts the magenta backdrop, enclosed negative spaces, and feathered edges into alpha. A connected-edge neutral key remains as a fallback for older white-background assets.
 
 ## Originality guardrails
 

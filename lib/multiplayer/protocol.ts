@@ -2,6 +2,8 @@ import {
   BUILDING_SPECS,
   FACTION_IDS,
   SHOP_ITEM_KINDS,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
   type BuildingKind,
   type CommanderId,
   type FactionId,
@@ -39,6 +41,7 @@ export type GameCommand =
   | { action: "toggle_production"; buildingId: number }
   | { action: "toggle_sync" }
   | { action: "buy_item"; item: ShopItemKind }
+  | { action: "move_keep_warden"; x: number; y: number }
   | { action: "cast_reprieve" };
 
 export type ClientMessage =
@@ -120,6 +123,14 @@ export function isGameCommand(value: unknown): value is GameCommand {
     return Number.isSafeInteger(candidate.buildingId) && Number(candidate.buildingId) > 0;
   }
   if (candidate.action === "toggle_sync" || candidate.action === "cast_reprieve") return true;
+  if (candidate.action === "move_keep_warden") {
+    return Number.isSafeInteger(candidate.x)
+      && Number.isSafeInteger(candidate.y)
+      && Number(candidate.x) >= 0
+      && Number(candidate.x) <= WORLD_WIDTH
+      && Number(candidate.y) >= 0
+      && Number(candidate.y) <= WORLD_HEIGHT;
+  }
   if (candidate.action === "buy_item") {
     return typeof candidate.item === "string" && (SHOP_ITEM_KINDS as string[]).includes(candidate.item);
   }

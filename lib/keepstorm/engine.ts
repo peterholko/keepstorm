@@ -41,12 +41,33 @@ export const CELL_SIZE = 32;
 export const GRID_COLUMNS = 100;
 export const GRID_ROWS = 28;
 export const KEEP_MAX_HP = 2400;
-export const MATCH_LIMIT = 360;
+export const MATCH_LIMIT = 30 * 60;
 export const REPRIEVE_READY_AT = 75;
-export const BUILDING_CAP = 16;
+export const BUILDING_CAP = 30;
 export const UNIT_CAP = 160;
-export const INCOME_INTERVAL = 7;
+export const INCOME_INTERVAL = 10;
+export const BASE_INCOME = 5;
+export const TAX_BRACKET_SIZE = 25;
+export const MAX_INCOME_TAX = 0.8;
+export const TIMBER_RETURN_LIMIT = 300;
+export const ECONOMY_BUILDING_CAP = 5;
 export const ROUNDS_TO_WIN = 2;
+export const KEEP_WARDEN_DAMAGE = 34;
+export const KEEP_WARDEN_RANGE = 230;
+export const KEEP_WARDEN_SPEED = 140;
+export const KEEP_WARDEN_ATTACK_EVERY = 0.9;
+export const KEEP_WARDEN_ATLAS_INDEX = 13;
+export const GAME_VERSION = "0.6.6";
+export const GAME_BUILD = `keep-warden-alpha-${GAME_VERSION}`;
+
+const AI_OPENING_DELAY = 0.65;
+const AI_ACTION_INTERVAL = 1.35;
+const AI_MAX_PLACEMENTS_PER_TURN = 3;
+const AI_BASELINE_PRODUCTION = 5;
+const AI_SPECIAL_START = 5;
+const AI_LEGENDARY_START = 8;
+const AI_RALLY_HORN_START = 10;
+const AI_TREASURY_START = 12;
 
 export type Team = "player" | "enemy";
 export type CommanderId = Team | "player_ally" | "enemy_ally";
@@ -115,6 +136,17 @@ export interface Unit {
   lastDamagedBy?: CommanderId;
 }
 
+export interface KeepWarden {
+  commander: CommanderId;
+  team: Team;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  cooldown: number;
+  attackFlash: number;
+}
+
 export type EffectType = "hit" | "spawn" | "destroy" | "reprieve" | "yield" | "shield" | "heal" | "pulse" | "upgrade" | "item";
 
 export interface Effect {
@@ -154,6 +186,7 @@ export interface GameState {
   keeps: Record<Team, number>;
   buildings: Building[];
   units: Unit[];
+  keepWardens: CommanderRecord<KeepWarden>;
   effects: Effect[];
   incomeClock: number;
   aiClock: number;
@@ -181,12 +214,12 @@ export interface StepGameOptions {
 
 export const BUILD_AREAS: Record<Team, readonly GridRect[]> = {
   player: [
-    { minX: 9, maxX: 19, minY: 4, maxY: 11 },
-    { minX: 9, maxX: 19, minY: 16, maxY: 23 },
+    { minX: 8, maxX: 20, minY: 3, maxY: 11 },
+    { minX: 8, maxX: 20, minY: 15, maxY: 23 },
   ],
   enemy: [
-    { minX: 80, maxX: 90, minY: 4, maxY: 11 },
-    { minX: 80, maxX: 90, minY: 16, maxY: 23 },
+    { minX: 79, maxX: 91, minY: 3, maxY: 11 },
+    { minX: 79, maxX: 91, minY: 15, maxY: 23 },
   ],
 };
 
@@ -196,9 +229,37 @@ export function buildAreasForCommander(state: Pick<GameState, "matchMode">, comm
   return [BUILD_AREAS[team][commander.endsWith("_ally") ? 1 : 0]];
 }
 
+export function keepWardenBoundsForCommander(state: Pick<GameState, "matchMode">, commander: CommanderId): GridRect {
+  const team = teamForCommander(commander);
+  const areas = buildAreasForCommander(state, commander);
+  const minY = state.matchMode === "2v2" ? Math.max(NAV_ZONES[team].minY, areas[0].minY - 1) : NAV_ZONES[team].minY;
+  const maxY = state.matchMode === "2v2" ? Math.min(NAV_ZONES[team].maxY, areas[0].maxY + 1) : NAV_ZONES[team].maxY;
+  return { minX: NAV_ZONES[team].minX, maxX: NAV_ZONES[team].maxX, minY, maxY };
+}
+
+function keepWardenWorldBounds(state: Pick<GameState, "matchMode">, commander: CommanderId): { minX: number; maxX: number; minY: number; maxY: number } {
+  const bounds = keepWardenBoundsForCommander(state, commander);
+  const padding = 12;
+  return {
+    minX: bounds.minX * CELL_SIZE + padding,
+    maxX: (bounds.maxX + 1) * CELL_SIZE - padding,
+    minY: bounds.minY * CELL_SIZE + padding,
+    maxY: (bounds.maxY + 1) * CELL_SIZE - padding,
+  };
+}
+
+export function validateKeepWardenDestination(state: Pick<GameState, "matchMode" | "activeCommanders" | "status">, commander: CommanderId, x: number, y: number): PlacementValidation {
+  if (state.status !== "playing") return { valid: false, reason: "The round is over." };
+  if (!activeCommandersFor(state).includes(commander)) return { valid: false, reason: "That Keep Warden is not active in this match." };
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return { valid: false, reason: "Choose a point inside your base." };
+  const bounds = keepWardenWorldBounds(state, commander);
+  const valid = x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY;
+  return { valid, reason: valid ? "Keep Warden moving to defend that position." : "Your Keep Warden cannot leave its assigned base yard." };
+}
+
 export const BUILD_ZONES: Record<Team, GridRect> = {
-  player: { minX: 9, maxX: 19, minY: 4, maxY: 23 },
-  enemy: { minX: 80, maxX: 90, minY: 4, maxY: 23 },
+  player: { minX: 8, maxX: 20, minY: 3, maxY: 23 },
+  enemy: { minX: 79, maxX: 91, minY: 3, maxY: 23 },
 };
 
 const NAV_ZONES: Record<Team, GridRect> = {
@@ -230,11 +291,54 @@ const LANE_PATH: Point[] = [
   { x: 2448, y: 448 },
 ];
 
-const STARTING_RESOURCES: ResourceStock = { marks: 520, timber: 70, sigils: 1 };
+export const STARTING_RESOURCES: ResourceStock = { marks: 400, timber: 125, sigils: 1 };
 const RESOURCE_KEYS: Array<keyof ResourceStock> = ["marks", "timber", "sigils"];
 
 function commanderRecord<T>(factory: (commander: CommanderId) => T): CommanderRecord<T> {
   return Object.fromEntries(COMMANDER_IDS.map((commander) => [commander, factory(commander)])) as CommanderRecord<T>;
+}
+
+function keepWardenHomePoint(matchMode: MatchMode, commander: CommanderId): Point {
+  const team = teamForCommander(commander);
+  const y = matchMode === "2v2" ? (commander.endsWith("_ally") ? 624 : 240) : 448;
+  return { x: team === "player" ? 224 : WORLD_WIDTH - 224, y };
+}
+
+function createKeepWarden(matchMode: MatchMode, commander: CommanderId): KeepWarden {
+  const home = keepWardenHomePoint(matchMode, commander);
+  return {
+    commander,
+    team: teamForCommander(commander),
+    x: home.x,
+    y: home.y,
+    targetX: home.x,
+    targetY: home.y,
+    cooldown: 0,
+    attackFlash: 0,
+  };
+}
+
+function keepWardenRecordForState(state: Pick<GameState, "matchMode" | "keepWardens">): CommanderRecord<KeepWarden> {
+  return commanderRecord((commander) => keepWardenForCommander(state, commander));
+}
+
+export function keepWardenForCommander(state: Pick<GameState, "matchMode" | "keepWardens">, commander: CommanderId): KeepWarden {
+  const fallback = createKeepWarden(state.matchMode, commander);
+  const current = state.keepWardens?.[commander] ?? fallback;
+  return {
+    commander,
+    team: teamForCommander(commander),
+    x: current.x,
+    y: current.y,
+    targetX: current.targetX,
+    targetY: current.targetY,
+    cooldown: current.cooldown,
+    attackFlash: current.attackFlash,
+  };
+}
+
+export function activeKeepWardens(state: Pick<GameState, "matchMode" | "activeCommanders" | "keepWardens">): KeepWarden[] {
+  return activeCommandersFor(state).map((commander) => keepWardenForCommander(state, commander));
 }
 
 export function activeCommandersFor(state: Pick<GameState, "activeCommanders">): CommanderId[] {
@@ -297,9 +401,10 @@ function createGameState(matchMode: MatchMode, chosenFactions: Partial<Commander
     keeps: { player: KEEP_MAX_HP, enemy: KEEP_MAX_HP },
     buildings: [],
     units: [],
+    keepWardens: commanderRecord((commander) => createKeepWarden(matchMode, commander)),
     effects: [],
     incomeClock: INCOME_INTERVAL,
-    aiClock: 3.2,
+    aiClock: AI_OPENING_DELAY,
     keepDefenseClock: 1.15,
     syncEnabled: commanderRecord(() => false),
     syncClock: commanderRecord(() => 12),
@@ -307,7 +412,7 @@ function createGameState(matchMode: MatchMode, chosenFactions: Partial<Commander
     rallyHorn: commanderRecord(() => false),
     keepArmorUntil: commanderRecord(() => 0),
     nextId: 1,
-    event: "Choose a structure, then place it inside your construction yard.",
+    event: "Choose a structure to begin. Tap empty base ground to reposition your Keep Warden.",
     eventSerial: 1,
     stats: emptyStats(),
   };
@@ -323,31 +428,27 @@ export function createMultiplayerState(mode: "1v1" | "2v2", factions: Partial<Co
 
 export function startNextRound(state: GameState): GameState {
   if (state.status !== "round_won" && state.status !== "round_lost") return state;
-  const losingTeam: Team = state.status === "round_lost" ? "player" : "enemy";
   return {
     ...state,
     status: "playing",
     started: false,
     elapsed: 0,
     round: state.round + 1,
-    resources: commanderRecord((commander) => ({
-      marks: STARTING_RESOURCES.marks + (teamForCommander(commander) === losingTeam ? 60 : 0),
-      timber: STARTING_RESOURCES.timber,
-      sigils: STARTING_RESOURCES.sigils,
-    })),
+    resources: commanderRecord(() => ({ ...STARTING_RESOURCES })),
     keeps: { player: KEEP_MAX_HP, enemy: KEEP_MAX_HP },
     buildings: [],
     units: [],
+    keepWardens: commanderRecord((commander) => createKeepWarden(state.matchMode, commander)),
     effects: [],
     incomeClock: INCOME_INTERVAL,
-    aiClock: 3.2,
+    aiClock: AI_OPENING_DELAY,
     keepDefenseClock: 1.15,
     syncEnabled: commanderRecord(() => false),
     syncClock: commanderRecord(() => 12),
     reprieveUsed: commanderRecord(() => false),
     rallyHorn: commanderRecord(() => false),
     keepArmorUntil: commanderRecord(() => 0),
-    event: `Round ${state.round + 1}. Rebuild your host and adapt to the rival's last formation.`,
+    event: `Round ${state.round + 1}. Rebuild your host; every Keep Warden has returned to guard its base yard.`,
     eventSerial: state.eventSerial + 1,
   };
 }
@@ -372,10 +473,83 @@ export function commanderUnitCount(state: GameState, commander: CommanderId): nu
   return state.units.filter((unit) => commanderForUnit(unit) === commander).length;
 }
 
+function marksInvestedThroughLevel(kind: BuildingKind, level: 1 | 2 | 3): number {
+  const spec = BUILDING_SPECS[kind];
+  return spec.cost.marks
+    + (level >= 2 ? spec.upgradeCost.marks : 0)
+    + (level >= 3 ? spec.legendaryCost.marks : 0);
+}
+
+export function marksInvestedInBuilding(building: Pick<Building, "kind" | "level">): number {
+  return marksInvestedThroughLevel(building.kind, building.level);
+}
+
+export function buildingIncomeRate(kind: BuildingKind): number {
+  const spec = BUILDING_SPECS[kind];
+  if (spec.category === "tower") return 0.008;
+  if (spec.category === "special") return spec.effect === "tempest" ? 0.009 : 0.012;
+  if (spec.category === "economy") return 0.012;
+  return spec.unitKind && UNIT_SPECS[spec.unitKind].role === "siege" ? 0.018 : 0.02;
+}
+
+export function buildingIncomeFor(building: Pick<Building, "kind" | "level">): number {
+  return marksInvestedInBuilding(building) * buildingIncomeRate(building.kind);
+}
+
+export function economyMultiplier(buildingCount: number): number {
+  let multiplier = 1;
+  let nextBonus = 0.25;
+  for (let index = 0; index < Math.max(0, buildingCount); index += 1) {
+    multiplier += nextBonus;
+    nextBonus *= 0.85;
+  }
+  return multiplier;
+}
+
+export function incomeAfterProgressiveTax(grossIncome: number, bracketSize = TAX_BRACKET_SIZE): number {
+  let remaining = Math.max(0, grossIncome);
+  let net = 0;
+  for (let bracket = 0; bracket < 8 && remaining > 0; bracket += 1) {
+    const amount = Math.min(bracketSize, remaining);
+    net += amount * (1 - bracket * 0.1);
+    remaining -= amount;
+  }
+  if (remaining > 0) net += remaining * (1 - MAX_INCOME_TAX);
+  return net;
+}
+
+export interface IncomeBreakdown {
+  base: number;
+  buildings: number;
+  economyBuildings: number;
+  multiplier: number;
+  gross: number;
+  net: number;
+  paid: number;
+  effectiveTaxRate: number;
+}
+
+export function incomeBreakdownForCommander(state: GameState, commander: CommanderId): IncomeBreakdown {
+  const buildings = state.buildings.filter((building) => commanderForBuilding(building) === commander);
+  const buildingIncome = buildings.reduce((total, building) => total + buildingIncomeFor(building), 0);
+  const economyBuildings = buildings.filter((building) => BUILDING_SPECS[building.kind].category === "economy").length;
+  const multiplier = economyMultiplier(economyBuildings);
+  const gross = (BASE_INCOME + buildingIncome) * multiplier;
+  const net = incomeAfterProgressiveTax(gross);
+  return {
+    base: BASE_INCOME,
+    buildings: buildingIncome,
+    economyBuildings,
+    multiplier,
+    gross,
+    net,
+    paid: Math.round(net),
+    effectiveTaxRate: gross > 0 ? 1 - net / gross : 0,
+  };
+}
+
 export function incomeForCommander(state: GameState, commander: CommanderId): number {
-  return 45 + state.buildings
-    .filter((building) => commanderForBuilding(building) === commander)
-    .reduce((total, building) => total + Math.round(BUILDING_SPECS[building.kind].yieldBonus * (1 + (building.level - 1) * 0.35)), 0);
+  return incomeBreakdownForCommander(state, commander).paid;
 }
 
 export function incomeFor(state: GameState, team: Team): number {
@@ -397,9 +571,32 @@ function spend(resources: ResourceStock, cost: ResourceCost): ResourceStock {
 }
 
 export function costForUpgrade(building: Building): ResourceCost | null {
+  if (BUILDING_SPECS[building.kind].category === "economy") return null;
   if (building.level === 1) return BUILDING_SPECS[building.kind].upgradeCost;
   if (building.level === 2) return BUILDING_SPECS[building.kind].legendaryCost;
   return null;
+}
+
+export function timberReturnFor(kind: BuildingKind, cost: ResourceCost, purchasedLevel: 1 | 2 | 3): number {
+  const spec = BUILDING_SPECS[kind];
+  if (spec.category !== "troop") return 0;
+  const rate = purchasedLevel === 3
+    ? 0.25
+    : spec.unitKind && UNIT_SPECS[spec.unitKind].role === "siege" ? 0.75 : 1;
+  return Math.min(TIMBER_RETURN_LIMIT, Math.round(cost.marks * rate));
+}
+
+export function unitBountyFor(kind: UnitKind, level: 1 | 2 | 3): number {
+  const producer = Object.values(BUILDING_SPECS).find((spec) => spec.unitKind === kind);
+  if (!producer) return UNIT_SPECS[kind].bounty;
+  const invested = producer.cost.marks
+    + (level >= 2 ? producer.upgradeCost.marks : 0)
+    + (level >= 3 ? producer.legendaryCost.marks : 0);
+  return Math.max(1, Math.round(invested * 0.035));
+}
+
+export function buildingBountyFor(building: Pick<Building, "kind" | "level">): number {
+  return Math.max(1, Math.round(marksInvestedInBuilding(building) * 0.2));
 }
 
 export function damageAgainstArmor(damageType: DamageType, armorType: ArmorType): number {
@@ -514,6 +711,9 @@ export function validatePlacement(state: GameState, commander: CommanderId, kind
   if (spec.faction !== state.factions[commander]) return { valid: false, reason: "That structure belongs to another faction." };
   if (!canAfford(state.resources[commander], spec.cost)) return { valid: false, reason: "You cannot afford that Marks, Timber, or Sigil cost." };
   if (commanderBuildingCount(state, commander) >= BUILDING_CAP) return { valid: false, reason: "Your construction yard is full." };
+  if (spec.category === "economy" && commanderBuildingCount(state, commander, kind) >= ECONOMY_BUILDING_CAP) {
+    return { valid: false, reason: "Your treasury network has reached its five-structure limit." };
+  }
 
   const insideBuildArea = buildAreasForCommander(state, commander).some((area) => (
     gridX >= area.minX
@@ -561,6 +761,16 @@ function withEvent(state: GameState, event: string): GameState {
   return { ...state, event, eventSerial: state.eventSerial + 1 };
 }
 
+export function moveKeepWarden(state: GameState, commander: CommanderId, x: number, y: number): GameState {
+  const validation = validateKeepWardenDestination(state, commander, x, y);
+  if (!validation.valid) return teamForCommander(commander) === "player" ? withEvent(state, validation.reason) : state;
+  const keepWardens = keepWardenRecordForState(state);
+  keepWardens[commander] = { ...keepWardens[commander], targetX: x, targetY: y };
+  return teamForCommander(commander) === "player"
+    ? withEvent({ ...state, keepWardens }, "Keep Warden repositioning inside the base yard.")
+    : { ...state, keepWardens };
+}
+
 export function placeBuilding(state: GameState, commander: CommanderId, kind: BuildingKind, gridX: number, gridY: number): GameState {
   const team = teamForCommander(commander);
   const validation = validatePlacement(state, commander, kind, gridX, gridY);
@@ -576,13 +786,15 @@ export function placeBuilding(state: GameState, commander: CommanderId, kind: Bu
     hp: spec.maxHp,
     maxHp: spec.maxHp,
     level: 1,
-    spawnClock: spec.spawnEvery ? Math.min(spec.spawnEvery, 2.2 + (state.nextId % 3) * 0.4) : 0,
+    spawnClock: 0,
     abilityClock: spec.category === "special" ? 3.4 : spec.category === "tower" ? 1.2 : 0,
     productionPaused: false,
     totalSpawned: 0,
   };
+  building.spawnClock = spec.spawnEvery ? productionPeriod(building, state) : 0;
   const resources = spend(state.resources[commander], spec.cost);
-  resources.timber += spec.timberGain;
+  const timberReturned = timberReturnFor(kind, spec.cost, 1);
+  resources.timber += timberReturned;
   const next: GameState = {
     ...state,
     started: true,
@@ -595,8 +807,8 @@ export function placeBuilding(state: GameState, commander: CommanderId, kind: Bu
     },
   };
   if (team === "enemy") return next;
-  const timberText = spec.timberGain ? ` It returned ${spec.timberGain} Timber to your stores.` : "";
-  const actionText = spec.unitKind ? `${spec.cohort} will deploy automatically.` : spec.category === "economy" ? "Your recurring income is now higher." : "Its battlefield effect is now active.";
+  const timberText = timberReturned ? ` It returned ${timberReturned} Timber to your stores.` : "";
+  const actionText = spec.unitKind ? `${spec.cohort} will deploy automatically.` : spec.category === "economy" ? "Your treasury now amplifies every income payment." : "Its battlefield effect is now active.";
   return withEvent(next, `${spec.name} placed at ${gridX}, ${gridY}. ${actionText}${timberText}`);
 }
 
@@ -612,6 +824,8 @@ export function upgradeBuilding(state: GameState, commander: CommanderId, buildi
   const nextMaxHp = Math.round(BUILDING_SPECS[building.kind].maxHp * hpScale);
   const hpGain = nextMaxHp - building.maxHp;
   const resources = spend(state.resources[commander], cost);
+  const timberReturned = timberReturnFor(building.kind, cost, nextLevel);
+  resources.timber += timberReturned;
   const center = buildingCenter(building);
   const next: GameState = {
     ...state,
@@ -627,7 +841,8 @@ export function upgradeBuilding(state: GameState, commander: CommanderId, buildi
     nextId: state.nextId + 1,
     stats: { ...state.stats, upgrades: { ...state.stats.upgrades, [commander]: state.stats.upgrades[commander] + 1 } },
   };
-  return team === "player" ? withEvent(next, `${BUILDING_SPECS[building.kind].name} is now ${nextLevel === 3 ? "Legendary" : "Veteran"}.`) : next;
+  const timberText = timberReturned ? ` ${timberReturned} Timber returned to your stores.` : "";
+  return team === "player" ? withEvent(next, `${BUILDING_SPECS[building.kind].name} is now ${nextLevel === 3 ? "Legendary" : "Veteran"}.${timberText}`) : next;
 }
 
 export function toggleProduction(state: GameState, commander: CommanderId, buildingId: number): GameState {
@@ -719,10 +934,9 @@ function unitScale(level: 1 | 2 | 3): number {
 }
 
 function productionPeriod(building: Building, state: GameState): number {
-  const base = BUILDING_SPECS[building.kind].spawnEvery ?? 12;
-  const levelFactor = building.level === 1 ? 1 : building.level === 2 ? 0.88 : 0.76;
+  const base = 15 + marksInvestedInBuilding(building) / 20;
   const factionFactor = state.factions[commanderForBuilding(building)] === "stormglass" ? 0.92 : 1;
-  return base * levelFactor * factionFactor;
+  return base * factionFactor;
 }
 
 function spawnUnit(state: GameState, building: Building): GameState {
@@ -779,13 +993,52 @@ export function buildingCenter(building: Pick<Building, "gridX" | "gridY" | "kin
   return { x: (building.gridX + spec.width / 2) * CELL_SIZE, y: (building.gridY + spec.height / 2) * CELL_SIZE };
 }
 
-function moveToward(unit: Unit, target: Point, amount: number): void {
-  const dx = target.x - unit.x;
-  const dy = target.y - unit.y;
+function moveToward(mover: Point, target: Point, amount: number): void {
+  const dx = target.x - mover.x;
+  const dy = target.y - mover.y;
   const length = Math.hypot(dx, dy);
-  if (length <= amount || length === 0) { unit.x = target.x; unit.y = target.y; return; }
-  unit.x += dx / length * amount;
-  unit.y += dy / length * amount;
+  if (length <= amount || length === 0) { mover.x = target.x; mover.y = target.y; return; }
+  mover.x += dx / length * amount;
+  mover.y += dy / length * amount;
+}
+
+function clampKeepWardenPoint(state: Pick<GameState, "matchMode">, commander: CommanderId, point: Point): Point {
+  const bounds = keepWardenWorldBounds(state, commander);
+  return {
+    x: Math.max(bounds.minX, Math.min(bounds.maxX, point.x)),
+    y: Math.max(bounds.minY, Math.min(bounds.maxY, point.y)),
+  };
+}
+
+function squaredDistanceToSegment(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return (point.x - start.x) ** 2 + (point.y - start.y) ** 2;
+  const projection = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  const projectedX = start.x + dx * projection;
+  const projectedY = start.y + dy * projection;
+  return (point.x - projectedX) ** 2 + (point.y - projectedY) ** 2;
+}
+
+function rejoinForwardPath(unit: Unit): void {
+  if (!unit.path.length) return;
+  if (unit.pathIndex >= unit.path.length) {
+    unit.pathIndex = unit.path.length - 1;
+    return;
+  }
+  if (unit.pathIndex <= 0 || unit.path.length < 2) return;
+
+  let bestEndIndex = unit.pathIndex;
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+  for (let segmentIndex = unit.pathIndex - 1; segmentIndex < unit.path.length - 1; segmentIndex += 1) {
+    const distanceSquared = squaredDistanceToSegment(unit, unit.path[segmentIndex], unit.path[segmentIndex + 1]);
+    if (distanceSquared < bestDistanceSquared - .01 || (Math.abs(distanceSquared - bestDistanceSquared) <= .01 && segmentIndex + 1 > bestEndIndex)) {
+      bestDistanceSquared = distanceSquared;
+      bestEndIndex = segmentIndex + 1;
+    }
+  }
+  unit.pathIndex = Math.max(unit.pathIndex, bestEndIndex);
 }
 
 function moveAlongPath(unit: Unit, amount: number): void {
@@ -851,6 +1104,7 @@ function attackSpeed(unit: Unit, units: Unit[], state: GameState): number {
 function simulateCombat(state: GameState, dt: number): GameState {
   const units = state.units.map((unit) => ({ ...unit }));
   const buildings = state.buildings.map((building) => ({ ...building }));
+  const keepWardens = keepWardenRecordForState(state);
   const keeps = { ...state.keeps };
   const resources = commanderRecord((commander) => ({ ...(state.resources[commander] ?? STARTING_RESOURCES) }));
   const effects = state.effects.map((effect) => ({ ...effect, life: effect.life - dt })).filter((effect) => effect.life > 0);
@@ -869,6 +1123,36 @@ function simulateCombat(state: GameState, dt: number): GameState {
     if (state.factions[commanderForUnit(unit)] === "briarcrown") unit.hp = Math.min(unit.maxHp, unit.hp + 2.2 * dt * unitScale(unit.level));
     if (UNIT_SPECS[unit.kind].ability === "regrowth") unit.hp = Math.min(unit.maxHp, unit.hp + (UNIT_SPECS[unit.kind].abilityPower ?? 5) * dt);
     unit.cooldown = Math.max(0, unit.cooldown - dt * attackSpeed(unit, units, state));
+  }
+
+  for (const commander of activeCommandersFor(state)) {
+    const keepWarden = keepWardens[commander];
+    keepWarden.attackFlash = Math.max(0, keepWarden.attackFlash - dt);
+    keepWarden.cooldown = Math.max(0, keepWarden.cooldown - dt);
+
+    if (state.matchMode === "solo" && commander === "enemy") {
+      const invaders = units
+        .filter((unit) => unit.team === "player" && unit.hp > 0 && onTeamHalf(unit.x, "enemy"))
+        .sort((left, right) => distance(left, KEEP_POSITIONS.enemy) - distance(right, KEEP_POSITIONS.enemy));
+      const target = invaders[0] ?? keepWardenHomePoint(state.matchMode, commander);
+      const guardedTarget = clampKeepWardenPoint(state, commander, target);
+      keepWarden.targetX = guardedTarget.x;
+      keepWarden.targetY = guardedTarget.y;
+    }
+
+    const guardedTarget = clampKeepWardenPoint(state, commander, { x: keepWarden.targetX, y: keepWarden.targetY });
+    keepWarden.targetX = guardedTarget.x;
+    keepWarden.targetY = guardedTarget.y;
+    moveToward(keepWarden, guardedTarget, KEEP_WARDEN_SPEED * dt);
+
+    const eligible = units.filter((unit) => unit.team !== keepWarden.team && unit.hp > 0);
+    const nearest = eligible.reduce<Unit | null>((current, candidate) => !current || distance(keepWarden, candidate) < distance(keepWarden, current) ? candidate : current, null);
+    if (nearest && distance(keepWarden, nearest) <= KEEP_WARDEN_RANGE && keepWarden.cooldown <= 0) {
+      dealUnitDamage(nearest, KEEP_WARDEN_DAMAGE, "Arrow", commander, units);
+      keepWarden.cooldown = KEEP_WARDEN_ATTACK_EVERY;
+      keepWarden.attackFlash = 0.22;
+      addEffect(effects, nextId, { type: "hit", x: keepWarden.x, y: keepWarden.y, x2: nearest.x, y2: nearest.y, life: 0.22, team: keepWarden.team });
+    }
   }
 
   for (const unit of units) {
@@ -949,13 +1233,17 @@ function simulateCombat(state: GameState, dt: number): GameState {
         unit.attackFlash = 0.2;
         addEffect(effects, nextId, { type: "hit", x: unit.x, y: unit.y, x2: keep.x, y2: keep.y, life: 0.24, team: unit.team });
       }
-    } else moveAlongPath(unit, spec.speed * moveFactor * dt);
+    } else {
+      rejoinForwardPath(unit);
+      moveAlongPath(unit, spec.speed * moveFactor * dt);
+    }
   }
 
   const intermediate: GameState = {
     ...state,
     units,
     buildings,
+    keepWardens,
     keeps: { player: Math.max(0, keeps.player), enemy: Math.max(0, keeps.enemy) },
     resources,
     effects,
@@ -981,7 +1269,7 @@ function collectDefeated(state: GameState): GameState {
     const owner = commanderForUnit(unit);
     unitsLost[owner] = (unitsLost[owner] ?? 0) + 1;
     if (unit.lastDamagedBy) {
-      const bounty = UNIT_SPECS[unit.kind].bounty + (unit.level - 1) * 5;
+      const bounty = unitBountyFor(unit.kind, unit.level);
       resources[unit.lastDamagedBy].marks += bounty;
       bountyEarned[unit.lastDamagedBy] = (bountyEarned[unit.lastDamagedBy] ?? 0) + bounty;
     }
@@ -991,7 +1279,7 @@ function collectDefeated(state: GameState): GameState {
     const owner = commanderForBuilding(building);
     buildingsLost[owner] = (buildingsLost[owner] ?? 0) + 1;
     if (building.lastDamagedBy) {
-      const bounty = 35 + building.level * 15;
+      const bounty = buildingBountyFor(building);
       resources[building.lastDamagedBy].marks += bounty;
       bountyEarned[building.lastDamagedBy] = (bountyEarned[building.lastDamagedBy] ?? 0) + bounty;
     }
@@ -1096,72 +1384,150 @@ export function castReprieve(state: GameState, commander: CommanderId): GameStat
 
 function shouldBotCastReprieve(state: GameState): boolean {
   if (!reprieveReady(state, "enemy")) return false;
+  const attackers = state.units.filter((unit) => unit.team === "player");
+  const defenders = state.units.filter((unit) => unit.team === "enemy");
   const invaders = state.units.filter((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy"));
-  const closeThreats = invaders.filter((unit) => distance(unit, KEEP_POSITIONS.enemy) < 760);
+  const closeThreats = invaders.filter((unit) => distance(unit, KEEP_POSITIONS.enemy) < 820);
   const pressure = invaders.reduce((total, unit) => {
     const spec = UNIT_SPECS[unit.kind];
     const roleWeight = spec.role === "siege" ? 2.25 : spec.role === "vanguard" ? 1.25 : 1;
     const proximityWeight = distance(unit, KEEP_POSITIONS.enemy) < 950 ? 1.5 : 1;
     return total + unit.level * roleWeight * proximityWeight * Math.max(0.35, unit.hp / unit.maxHp);
   }, 0);
+  const fieldStrength = (units: Unit[]) => units.reduce((total, unit) => {
+    const roleWeight = UNIT_SPECS[unit.kind].role === "siege" ? 1.7 : UNIT_SPECS[unit.kind].role === "vanguard" ? 1.2 : 1;
+    return total + unit.level * roleWeight * Math.max(0.3, unit.hp / unit.maxHp);
+  }, 0);
+  const attackerStrength = fieldStrength(attackers);
+  const defenderStrength = fieldStrength(defenders);
+  const siegeThreat = invaders.some((unit) => UNIT_SPECS[unit.kind].role === "siege" && distance(unit, KEEP_POSITIONS.enemy) < 1_100);
+  const criticalThreat = invaders.some((unit) => distance(unit, KEEP_POSITIONS.enemy) < 480);
   const keepRatio = state.keeps.enemy / KEEP_MAX_HP;
-  return closeThreats.length >= 2
-    || invaders.length >= 4
-    || pressure >= 5.5
-    || (keepRatio < 0.7 && invaders.length >= 1)
+  return criticalThreat
+    || closeThreats.length >= 2
+    || siegeThreat
+    || invaders.length >= 3
+    || pressure >= 3.25
+    || (invaders.length >= 1 && attackerStrength >= Math.max(3.2, defenderStrength * 1.35))
+    || (keepRatio < 0.85 && invaders.length >= 1)
     || keepRatio < 0.4;
 }
 
-function dominantEnemyArmor(state: GameState, team: Team): ArmorType {
-  const opponent = enemyOf(team);
-  const counts = new Map<ArmorType, number>();
-  for (const unit of state.units.filter((candidate) => candidate.team === opponent)) {
+const AI_ARMOR_TYPES: ArmorType[] = ["Plate", "Cloth", "Ward", "Fortified", "Ethereal"];
+
+function aiProductionBuildings(state: GameState, team: Team): Building[] {
+  return state.buildings.filter((building) => building.team === team && BUILDING_SPECS[building.kind].category === "troop");
+}
+
+function aiArmorWeights(state: GameState): Record<ArmorType, number> {
+  const weights = Object.fromEntries(AI_ARMOR_TYPES.map((armor) => [armor, 0])) as Record<ArmorType, number>;
+  for (const unit of state.units.filter((candidate) => candidate.team === "player")) {
     const armor = UNIT_SPECS[unit.kind].armorType;
-    counts.set(armor, (counts.get(armor) ?? 0) + 2);
+    weights[armor] += unit.level * (1 + Math.max(0.25, unit.hp / unit.maxHp));
   }
-  for (const building of state.buildings.filter((candidate) => candidate.team === opponent)) {
-    const kind = BUILDING_SPECS[building.kind].unitKind;
-    if (!kind) continue;
-    const armor = UNIT_SPECS[kind].armorType;
-    counts.set(armor, (counts.get(armor) ?? 0) + building.level);
+  for (const building of aiProductionBuildings(state, "player")) {
+    const unitKind = BUILDING_SPECS[building.kind].unitKind;
+    if (unitKind) weights[UNIT_SPECS[unitKind].armorType] += building.level * 1.5;
   }
-  return (["Plate", "Cloth", "Ward", "Fortified", "Ethereal"] as ArmorType[]).sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))[0];
+  if (AI_ARMOR_TYPES.every((armor) => weights[armor] === 0)) weights.Plate = 1;
+  return weights;
 }
 
-function aiDesiredTroop(state: GameState): BuildingKind {
-  const team: Team = "enemy";
-  const armor = dominantEnemyArmor(state, team);
-  const airThreat = state.units.filter((unit) => unit.team === "player" && UNIT_SPECS[unit.kind].flying).length;
-  return factionBuildings(state.factions.enemy, "troop").sort((a, b) => {
-    const aUnit = UNIT_SPECS[BUILDING_SPECS[a].unitKind!];
-    const bUnit = UNIT_SPECS[BUILDING_SPECS[b].unitKind!];
-    const aScore = DAMAGE_MATRIX[aUnit.damageType][armor] + (airThreat && aUnit.targetsAir ? 0.45 : 0);
-    const bScore = DAMAGE_MATRIX[bUnit.damageType][armor] + (airThreat && bUnit.targetsAir ? 0.45 : 0);
-    return bScore - aScore;
-  })[0];
+function aiRankedTroops(state: GameState): BuildingKind[] {
+  const troopKinds = factionBuildings(state.factions.enemy, "troop");
+  const owned = aiProductionBuildings(state, "enemy");
+  if (owned.length === 0) {
+    return [...troopKinds].sort((left, right) => BUILDING_SPECS[left].cost.marks - BUILDING_SPECS[right].cost.marks);
+  }
+
+  const armorWeights = aiArmorWeights(state);
+  const totalArmorWeight = AI_ARMOR_TYPES.reduce((total, armor) => total + armorWeights[armor], 0);
+  const playerAirWeight = state.units
+    .filter((unit) => unit.team === "player" && UNIT_SPECS[unit.kind].flying)
+    .reduce((total, unit) => total + unit.level, 0)
+    + aiProductionBuildings(state, "player")
+      .filter((building) => {
+        const unitKind = BUILDING_SPECS[building.kind].unitKind;
+        return unitKind ? UNIT_SPECS[unitKind].flying : false;
+      })
+      .reduce((total, building) => total + building.level, 0);
+  const playerCombatWeight = state.units.filter((unit) => unit.team === "player")
+    .reduce((total, unit) => total + unit.level, 0)
+    + aiProductionBuildings(state, "player").reduce((total, building) => total + building.level, 0);
+  const playerAntiAirWeight = state.units
+    .filter((unit) => unit.team === "player" && (UNIT_SPECS[unit.kind].targetsAir || UNIT_SPECS[unit.kind].flying))
+    .reduce((total, unit) => total + unit.level, 0)
+    + aiProductionBuildings(state, "player")
+      .filter((building) => {
+        const unitKind = BUILDING_SPECS[building.kind].unitKind;
+        return unitKind ? UNIT_SPECS[unitKind].targetsAir || UNIT_SPECS[unitKind].flying : false;
+      })
+      .reduce((total, building) => total + building.level, 0);
+  const antiAirCoverage = playerCombatWeight ? playerAntiAirWeight / playerCombatWeight : 0;
+  const roleCount = (role: "vanguard" | "support" | "siege") => owned.filter((building) => {
+    const unitKind = BUILDING_SPECS[building.kind].unitKind;
+    return unitKind ? UNIT_SPECS[unitKind].role === role : false;
+  }).length;
+  const ownAirCount = owned.filter((building) => {
+    const unitKind = BUILDING_SPECS[building.kind].unitKind;
+    return unitKind ? UNIT_SPECS[unitKind].flying : false;
+  }).length;
+  const desiredFrontline = Math.max(1, Math.ceil((owned.length + 1) * 0.36));
+  const desiredAir = antiAirCoverage < 0.5 ? Math.max(1, Math.ceil((owned.length + 1) * (0.5 - antiAirCoverage))) : 0;
+  const desiredSiege = owned.length >= 5 ? Math.max(1, Math.floor((owned.length + 1) / 7)) : 0;
+  const desiredSupport = owned.length >= 4 ? Math.max(1, Math.floor((owned.length + 1) / 6)) : 0;
+
+  const score = (kind: BuildingKind): number => {
+    const unitKind = BUILDING_SPECS[kind].unitKind!;
+    const unit = UNIT_SPECS[unitKind];
+    const matchup = AI_ARMOR_TYPES.reduce((total, armor) => total + DAMAGE_MATRIX[unit.damageType][armor] * armorWeights[armor], 0) / totalArmorWeight;
+    const duplicatePenalty = owned.filter((building) => building.kind === kind).length * 0.11;
+    let composition = 0;
+    if (unit.role === "vanguard" && roleCount("vanguard") < desiredFrontline) composition += 0.92;
+    if (unit.role === "siege" && roleCount("siege") < desiredSiege) composition += 0.72;
+    if (unit.role === "support" && roleCount("support") < desiredSupport) composition += 0.28;
+    if (playerAirWeight > 0) composition += unit.targetsAir || unit.flying ? 0.55 : -0.9;
+    if (unit.flying && ownAirCount < desiredAir) composition += 0.7 + (0.5 - antiAirCoverage) * 1.6;
+    if (unit.flying && antiAirCoverage > 0.7) composition -= 0.2;
+    return matchup + composition - duplicatePenalty - BUILDING_SPECS[kind].cost.marks * 0.00035;
+  };
+
+  return [...troopKinds].sort((left, right) => score(right) - score(left)
+    || BUILDING_SPECS[left].cost.marks - BUILDING_SPECS[right].cost.marks);
 }
 
-function aiDesiredBuilding(state: GameState): BuildingKind {
-  const faction = state.factions.enemy;
-  const total = buildingCount(state, "enemy");
-  const economy = factionBuildings(faction, "economy")[0];
-  const special = factionBuildings(faction, "special")[0];
-  const tower = factionBuildings(faction, "tower")[0];
-  if (total >= 2 && buildingCount(state, "enemy", economy) < Math.floor((total + 1) / 5)) return economy;
-  if (total >= 4 && buildingCount(state, "enemy", special) === 0) return special;
-  if (total >= 6 && buildingCount(state, "enemy", tower) === 0) return tower;
-  return aiDesiredTroop(state);
+function aiAreaUsage(state: GameState, area: GridRect): number {
+  return state.buildings.filter((building) => building.team === "enemy"
+    && building.gridX >= area.minX && building.gridX <= area.maxX
+    && building.gridY >= area.minY && building.gridY <= area.maxY).length;
 }
 
-function aiPlace(state: GameState, preferred: BuildingKind): GameState {
-  const choices = [preferred, ...factionBuildings(state.factions.enemy, "troop"), ...factionBuildings(state.factions.enemy, "economy")]
-    .filter((kind, index, list) => list.indexOf(kind) === index);
-  for (const kind of choices) {
-    if (!canAfford(state.resources.enemy, BUILDING_SPECS[kind].cost)) continue;
+function aiPlace(state: GameState, choices: readonly BuildingKind[]): GameState {
+  for (const kind of choices.filter((choice, index, list) => list.indexOf(choice) === index)) {
     const spec = BUILDING_SPECS[kind];
-    for (const area of BUILD_AREAS.enemy) {
-      for (let x = area.maxX - spec.width + 1; x >= area.minX; x -= 1) {
-        for (let y = area.minY; y <= area.maxY - spec.height + 1; y += 1) {
+    if (!canAfford(state.resources.enemy, spec.cost)) continue;
+    const invaders = state.units.filter((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy"));
+    const pressureY = invaders.length ? invaders.reduce((total, unit) => total + unit.y, 0) / invaders.length : null;
+    const areas = [...buildAreasForCommander(state, "enemy")].sort((left, right) => {
+      if ((spec.category === "tower" || spec.category === "special") && pressureY !== null) {
+        const leftDistance = Math.abs((left.minY + left.maxY + 1) * CELL_SIZE / 2 - pressureY);
+        const rightDistance = Math.abs((right.minY + right.maxY + 1) * CELL_SIZE / 2 - pressureY);
+        if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+      }
+      return aiAreaUsage(state, left) - aiAreaUsage(state, right);
+    });
+
+    for (const area of areas) {
+      const minX = area.minX;
+      const maxX = area.maxX - spec.width + 1;
+      const xPositions = Array.from({ length: maxX - minX + 1 }, (_, index) => spec.category === "economy" ? maxX - index : minX + index);
+      const minY = area.minY;
+      const maxY = area.maxY - spec.height + 1;
+      const middleY = (minY + maxY) / 2;
+      const yPositions = Array.from({ length: maxY - minY + 1 }, (_, index) => minY + index)
+        .sort((left, right) => Math.abs(left - middleY) - Math.abs(right - middleY));
+      for (const x of xPositions) {
+        for (const y of yPositions) {
           if (validatePlacement(state, "enemy", kind, x, y).valid) return placeBuilding(state, "enemy", kind, x, y);
         }
       }
@@ -1170,26 +1536,132 @@ function aiPlace(state: GameState, preferred: BuildingKind): GameState {
   return state;
 }
 
+function aiPlaceTroops(state: GameState, limit: number): GameState {
+  let next = state;
+  for (let placement = 0; placement < limit && commanderBuildingCount(next, "enemy") < BUILDING_CAP; placement += 1) {
+    const before = aiProductionBuildings(next, "enemy").length;
+    next = aiPlace(next, aiRankedTroops(next));
+    if (aiProductionBuildings(next, "enemy").length === before) break;
+  }
+  return next;
+}
+
+function aiUpgradeCandidate(state: GameState, level: 1 | 2): Building | null {
+  const kindPriority = new Map(aiRankedTroops(state).map((kind, index) => [kind, index]));
+  return [...state.buildings]
+    .filter((building) => building.team === "enemy" && BUILDING_SPECS[building.kind].category === "troop" && building.level === level)
+    .sort((left, right) => (kindPriority.get(left.kind) ?? 99) - (kindPriority.get(right.kind) ?? 99)
+      || right.totalSpawned - left.totalSpawned)[0] ?? null;
+}
+
+function aiManageSynchronization(state: GameState): GameState {
+  const production = aiProductionBuildings(state, "enemy").filter((building) => !building.productionPaused);
+  const periods = production.map((building) => productionPeriod(building, state));
+  const periodSpread = periods.length ? Math.max(...periods) / Math.min(...periods) : Number.POSITIVE_INFINITY;
+  const underPressure = state.units.some((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy"));
+  const shouldSynchronize = production.length >= 4 && state.elapsed > 70 && periodSpread <= 1.04 && !underPressure;
+  return shouldSynchronize === state.syncEnabled.enemy ? state : toggleSynchronization(state, "enemy");
+}
+
+function aiInvaderStrength(state: GameState): number {
+  return state.units.filter((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy")).reduce((total, unit) => {
+    const spec = UNIT_SPECS[unit.kind];
+    const roleWeight = spec.role === "siege" ? 1.8 : spec.role === "vanguard" ? 1.2 : 1;
+    return total + unit.level * roleWeight * Math.max(0.3, unit.hp / unit.maxHp);
+  }, 0);
+}
+
 function runAi(state: GameState): GameState {
   if (!state.started) return state;
   let next = state;
-  if (next.keeps.enemy < KEEP_MAX_HP * 0.58 && canAfford(next.resources.enemy, SHOP_ITEMS.iron_writ.cost)) next = buyShopItem(next, "enemy", "iron_writ");
-  if (buildingCount(next, "enemy") >= 7 && !next.rallyHorn.enemy && canAfford(next.resources.enemy, SHOP_ITEMS.rally_horn.cost)) next = buyShopItem(next, "enemy", "rally_horn");
-  if (next.resources.enemy.sigils === 0 && next.resources.enemy.marks > 700 && canAfford(next.resources.enemy, SHOP_ITEMS.sigil_shard.cost)) next = buyShopItem(next, "enemy", "sigil_shard");
+  const missingKeepHealth = KEEP_MAX_HP - next.keeps.enemy;
+  const invaderStrength = aiInvaderStrength(next);
+  const reprieveWillAnswer = reprieveReady(next, "enemy") && shouldBotCastReprieve(next);
 
-  const upgrade = [...next.buildings]
-    .filter((building) => building.team === "enemy" && building.level < 3)
-    .sort((a, b) => a.level - b.level || b.totalSpawned - a.totalSpawned)
-    .find((building) => {
-      const cost = costForUpgrade(building);
-      return cost ? canAfford(next.resources.enemy, cost) : false;
-    });
-  if (upgrade && buildingCount(next, "enemy") >= 5 && next.resources.enemy.marks > 260) next = upgradeBuilding(next, "enemy", upgrade.id);
+  if (missingKeepHealth >= 220
+    && !reprieveWillAnswer
+    && next.keepArmorUntil.enemy <= next.elapsed
+    && canAfford(next.resources.enemy, SHOP_ITEMS.iron_writ.cost)) {
+    next = buyShopItem(next, "enemy", "iron_writ");
+  }
+  if (invaderStrength >= 3.2
+    && !reprieveWillAnswer
+    && canAfford(next.resources.enemy, SHOP_ITEMS.ember_flask.cost)) {
+    next = buyShopItem(next, "enemy", "ember_flask");
+  }
 
-  if (buildingCount(next, "enemy") < BUILDING_CAP) next = aiPlace(next, aiDesiredBuilding(next));
-  const production = next.buildings.filter((building) => building.team === "enemy" && BUILDING_SPECS[building.kind].unitKind).length;
-  if (production >= 4 && next.elapsed > 70 && !next.syncEnabled.enemy) next = toggleSynchronization(next, "enemy");
-  return next;
+  const enemyProduction = aiProductionBuildings(next, "enemy").length;
+  const playerProduction = aiProductionBuildings(next, "player").length;
+  const catchUpTarget = Math.max(3, playerProduction + (next.elapsed >= 45 ? 1 : 0));
+  const productionTarget = Math.max(AI_BASELINE_PRODUCTION, catchUpTarget);
+  if (enemyProduction < productionTarget) {
+    next = aiPlaceTroops(next, Math.min(AI_MAX_PLACEMENTS_PER_TURN, productionTarget - enemyProduction));
+    return aiManageSynchronization(next);
+  }
+
+  const faction = next.factions.enemy;
+  const towerKind = factionBuildings(faction, "tower")[0];
+  const invaders = next.units.filter((unit) => unit.team === "player" && onTeamHalf(unit.x, "enemy"));
+  const desiredTowers = invaders.length >= 5 || next.keeps.enemy < KEEP_MAX_HP * 0.72 ? 2 : invaders.length >= 2 ? 1 : 0;
+  if (commanderBuildingCount(next, "enemy", towerKind) < desiredTowers) {
+    if (!canAfford(next.resources.enemy, BUILDING_SPECS[towerKind].cost)) return aiManageSynchronization(next);
+    const before = commanderBuildingCount(next, "enemy", towerKind);
+    next = aiPlace(next, [towerKind]);
+    if (commanderBuildingCount(next, "enemy", towerKind) > before) return aiManageSynchronization(next);
+  }
+
+  const specialKind = factionBuildings(faction, "special")[0];
+  const desiredSpecials = enemyProduction >= 14 ? 2 : enemyProduction >= AI_SPECIAL_START ? 1 : 0;
+  if (commanderBuildingCount(next, "enemy", specialKind) < desiredSpecials) {
+    if (!canAfford(next.resources.enemy, BUILDING_SPECS[specialKind].cost)) return aiManageSynchronization(next);
+    const before = commanderBuildingCount(next, "enemy", specialKind);
+    next = aiPlace(next, [specialKind]);
+    if (commanderBuildingCount(next, "enemy", specialKind) > before) return aiManageSynchronization(next);
+  }
+
+  const currentUpgradeRanks = aiProductionBuildings(next, "enemy").reduce((total, building) => total + building.level - 1, 0);
+  const desiredUpgradeRanks = Math.floor(enemyProduction / 4);
+  if (currentUpgradeRanks < desiredUpgradeRanks) {
+    const candidate = aiUpgradeCandidate(next, 1);
+    const cost = candidate ? costForUpgrade(candidate) : null;
+    if (candidate && cost && canAfford(next.resources.enemy, cost)) next = upgradeBuilding(next, "enemy", candidate.id);
+    return aiManageSynchronization(next);
+  }
+
+  const legendaryCount = aiProductionBuildings(next, "enemy").filter((building) => building.level === 3).length;
+  const desiredLegendaries = enemyProduction >= 16 ? 2 : enemyProduction >= AI_LEGENDARY_START ? 1 : 0;
+  if (legendaryCount < desiredLegendaries) {
+    const candidate = aiUpgradeCandidate(next, 2);
+    const cost = candidate ? costForUpgrade(candidate) : null;
+    if (candidate && cost && canAfford(next.resources.enemy, cost)) {
+      next = upgradeBuilding(next, "enemy", candidate.id);
+      return aiManageSynchronization(next);
+    }
+    if (candidate && next.resources.enemy.sigils === 0 && enemyProduction >= 16) {
+      if (canAfford(next.resources.enemy, SHOP_ITEMS.sigil_shard.cost)) next = buyShopItem(next, "enemy", "sigil_shard");
+      return aiManageSynchronization(next);
+    }
+    if (candidate && cost && next.resources.enemy.sigils > 0) return aiManageSynchronization(next);
+  }
+
+  if (enemyProduction >= AI_RALLY_HORN_START && !next.rallyHorn.enemy) {
+    if (canAfford(next.resources.enemy, SHOP_ITEMS.rally_horn.cost)) next = buyShopItem(next, "enemy", "rally_horn");
+    return aiManageSynchronization(next);
+  }
+
+  const economyKind = factionBuildings(faction, "economy")[0];
+  const desiredEconomy = enemyProduction < AI_TREASURY_START
+    ? 0
+    : Math.min(ECONOMY_BUILDING_CAP, 1 + Math.floor((enemyProduction - AI_TREASURY_START) / 7));
+  if (commanderBuildingCount(next, "enemy", economyKind) < desiredEconomy) {
+    if (!canAfford(next.resources.enemy, BUILDING_SPECS[economyKind].cost)) return aiManageSynchronization(next);
+    const before = commanderBuildingCount(next, "enemy", economyKind);
+    next = aiPlace(next, [economyKind]);
+    if (commanderBuildingCount(next, "enemy", economyKind) > before) return aiManageSynchronization(next);
+  }
+
+  if (commanderBuildingCount(next, "enemy") < BUILDING_CAP) next = aiPlaceTroops(next, 1);
+  return aiManageSynchronization(next);
 }
 
 function finishRound(state: GameState, winner: Team, reason: string): GameState {
@@ -1295,7 +1767,7 @@ export function stepGame(input: GameState, dt: number, options: StepGameOptions 
 
   if (options.runAi !== false && state.aiClock <= 0) {
     state = runAi(state);
-    state = { ...state, aiClock: 4.8 };
+    state = { ...state, aiClock: AI_ACTION_INTERVAL };
   }
 
   state = processProduction(state);
@@ -1322,6 +1794,12 @@ export function matchReport(state: GameState, playtestAnswer?: string): string {
     const commanders = commandersForTeam(state, team);
     return `${commanders.filter((commander) => state.reprieveUsed[commander]).length}/${commanders.length}`;
   };
+  const incomeForReport = (team: Team) => {
+    const breakdowns = commandersForTeam(state, team).map((commander) => incomeBreakdownForCommander(state, commander));
+    const net = breakdowns.reduce((total, breakdown) => total + breakdown.paid, 0);
+    const gross = breakdowns.reduce((total, breakdown) => total + breakdown.gross, 0);
+    return `${net} / ${Math.round(gross * 10) / 10}`;
+  };
   return [
     "KEEPSTORM PLAYTEST ALPHA — MATCH REPORT",
     `Result: ${result}`,
@@ -1334,9 +1812,10 @@ export function matchReport(state: GameState, playtestAnswer?: string): string {
     `Upgrades purchased: ${statFor(state.stats.upgrades, "player")} / ${statFor(state.stats.upgrades, "enemy")}`,
     `Cohorts raised: ${statFor(state.stats.unitsSpawned, "player")} / ${statFor(state.stats.unitsSpawned, "enemy")}`,
     `Bounty earned: ${statFor(state.stats.bountyEarned, "player")} / ${statFor(state.stats.bountyEarned, "enemy")}`,
+    `Recurring income (net / raw): ${incomeForReport("player")} vs ${incomeForReport("enemy")}`,
     `Items commissioned: ${statFor(state.stats.itemsBought, "player")} / ${statFor(state.stats.itemsBought, "enemy")}`,
     `Reprieves used this round: ${reprievesFor("player")} / ${reprievesFor("enemy")}`,
     `What felt decisive: ${playtestAnswer || "not answered"}`,
-    "Build: team-alpha-0.4.0",
+    `Build: ${GAME_BUILD}`,
   ].join("\n");
 }

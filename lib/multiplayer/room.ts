@@ -7,12 +7,14 @@ import {
   canAfford,
   castReprieve,
   costForUpgrade,
+  moveKeepWarden,
   placeBuilding,
   reprieveReady,
   stepGame,
   toggleProduction,
   toggleSynchronization,
   upgradeBuilding,
+  validateKeepWardenDestination,
   validatePlacement,
   commanderForBuilding,
   type CommanderId,
@@ -70,6 +72,12 @@ export function applyGameCommand(state: GameState, commander: CommanderId, comma
   if (command.action === "toggle_sync") {
     if (!state.started) return reject(state, "Commission a structure before synchronizing cohorts.");
     return accept(toggleSynchronization(state, commander), commander, "Rally synchronization updated.");
+  }
+
+  if (command.action === "move_keep_warden") {
+    const validation = validateKeepWardenDestination(state, commander, command.x, command.y);
+    if (!validation.valid) return reject(state, validation.reason);
+    return accept(moveKeepWarden(state, commander, command.x, command.y), commander, "Keep Warden repositioning inside the base yard.");
   }
 
   if (command.action === "buy_item") {

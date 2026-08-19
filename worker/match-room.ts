@@ -2,14 +2,15 @@ import { DurableObject } from "cloudflare:workers";
 import { timingSafeEqual } from "node:crypto";
 import {
   COMMANDER_IDS,
+  STARTING_RESOURCES,
   createMultiplayerState,
+  keepWardenForCommander,
   startNextRound,
   teamForCommander,
   type CommanderId,
   type CommanderRecord,
   type FactionId,
   type GameState,
-  type ResourceStock,
   type Team,
 } from "../lib/keepstorm/engine.ts";
 import {
@@ -35,7 +36,6 @@ const ROOM_STORAGE_KEY = "room";
 const ROOM_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MAX_MESSAGE_BYTES = 8_192;
 const MIN_TICK_MS = 40;
-const DEFAULT_RESOURCES: ResourceStock = { marks: 520, timber: 70, sigils: 1 };
 
 interface SocketAttachment {
   authenticated: boolean;
@@ -132,12 +132,13 @@ function normalizeGame(game: GameState | null, mode: OnlineMatchMode): GameState
   game.matchMode = mode;
   game.activeCommanders = seatsForMode(mode);
   game.factions = seatRecord((commander) => game.factions[commander] ?? game.factions[teamForCommander(commander)] ?? "daybreak");
-  game.resources = seatRecord((commander) => ({ ...(game.resources[commander] ?? DEFAULT_RESOURCES) }));
+  game.resources = seatRecord((commander) => ({ ...(game.resources[commander] ?? STARTING_RESOURCES) }));
   game.syncEnabled = seatRecord((commander) => game.syncEnabled[commander] ?? false);
   game.syncClock = seatRecord((commander) => game.syncClock[commander] ?? 12);
   game.reprieveUsed = seatRecord((commander) => game.reprieveUsed[commander] ?? false);
   game.rallyHorn = seatRecord((commander) => game.rallyHorn[commander] ?? false);
   game.keepArmorUntil = seatRecord((commander) => game.keepArmorUntil[commander] ?? 0);
+  game.keepWardens = seatRecord((commander) => keepWardenForCommander(game, commander));
   game.stats = {
     buildingsPlaced: seatRecord((commander) => game.stats.buildingsPlaced[commander] ?? 0),
     buildingsLost: seatRecord((commander) => game.stats.buildingsLost[commander] ?? 0),

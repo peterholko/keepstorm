@@ -21,6 +21,8 @@
 # misc
 .DS_Store
 *.pem
+*.tsbuildinfo
+/.claude/
 
 # debug
 npm-debug.log*

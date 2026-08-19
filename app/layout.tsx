@@ -1,8 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#0d120e",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://keepstorm.com"),
+  applicationName: "Keepstorm",
+  manifest: "/manifest.webmanifest",
   title: "Keepstorm",
   description:
     "A browser strategy game where buildings create units automatically and players race to destroy the enemy Keep.",
@@ -14,6 +22,14 @@ export const metadata: Metadata = {
     ],
     shortcut: "/favicon.ico",
     apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Keepstorm",
+    statusBarStyle: "black-translucent",
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
   },
   openGraph: {
     title: "Keepstorm",
